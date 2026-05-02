@@ -110,7 +110,7 @@ swipl -g "pack_install('pack-spse4-server',   [interactive(false)])" -t halt
 ```sh
 git clone https://github.com/aindilis/spse4.git
 cd spse4
-swipl -s ./run_all_tests.pl   # should report 79 tests passing
+swipl run_all_tests.pl   # should report 79 tests passing
 ```
 
 ---
@@ -167,7 +167,7 @@ A BibTeX entry is in `docs/spse4.bib`.
 
 ## License
 
-GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See
+GNU General Public License v3.0 or later (GPL-3.0-or-later). See
 `LICENSE` for the full text.
 
 This matches the licensing of the wider FRDCSA project and reflects the
