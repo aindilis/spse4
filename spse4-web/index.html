@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPSE4 — Shared Priority System Editor</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+</head>
+<body>
+  <div id="app">
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="16" height="16">
+            <circle cx="4" cy="4" r="2" fill="currentColor"/>
+            <circle cx="12" cy="4" r="2" fill="currentColor"/>
+            <circle cx="8" cy="12" r="2" fill="currentColor"/>
+            <line x1="4" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="12" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </div>
+        <span class="brand-name">SPSE4</span>
+        <span class="brand-version" id="server-version">—</span>
+      </div>
+
+      <div class="mt-picker">
+        <label for="mt-select">microtheory</label>
+        <select id="mt-select">
+          <option value="autopackager">autopackager</option>
+        </select>
+        <button id="refresh-btn" title="Refresh (r)">↻</button>
+      </div>
+
+      <div class="conn-status">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span class="conn-label" id="conn-label">connecting…</span>
+        <span class="conn-sep">·</span>
+        <span class="conn-user" id="conn-user">anon</span>
+      </div>
+    </header>
+
+    <div class="filterbar">
+      <span class="filter-group">
+        <span class="filter-group-label">status</span>
+        <span class="filter-chips" id="status-chips"></span>
+      </span>
+      <span class="filter-sep"></span>
+      <span class="filter-group">
+        <span class="filter-group-label">relation</span>
+        <span class="filter-chips" id="relation-chips"></span>
+      </span>
+      <span class="filter-spacer"></span>
+      <label class="chip chip-toggle" id="cp-toggle">
+        <input type="checkbox" id="cp-check" checked>
+        <span>critical path</span>
+      </label>
+      <label class="chip chip-toggle" id="goal-label" style="display:none">
+        <span>goal:</span>
+        <span class="goal-name" id="goal-name">—</span>
+        <button class="goal-clear" id="goal-clear" title="Clear goal">✕</button>
+      </label>
+    </div>
+
+    <main class="workbench">
+      <div id="cy" class="graph-canvas">
+        <div class="legend" id="legend">
+          <div class="legend-row"><span class="sw sw-completed"></span>completed</div>
+          <div class="legend-row"><span class="sw sw-in_progress"></span>in progress</div>
+          <div class="legend-row"><span class="sw sw-open"></span>open</div>
+          <div class="legend-row"><span class="sw sw-cancelled"></span>cancelled</div>
+          <div class="legend-row"><span class="sw sw-crit"></span>critical path</div>
+        </div>
+        <div class="hint" id="empty-hint">
+          <div class="hint-inner">
+            <div class="hint-title">No tasks loaded</div>
+            <div class="hint-sub">Pick a microtheory or start the demo server.</div>
+          </div>
+        </div>
+        <div class="tooltip" id="tooltip" style="display:none"></div>
+      </div>
+
+      <aside class="detail" id="detail">
+        <div class="detail-empty" id="detail-empty">
+          <div class="detail-empty-title">No selection</div>
+          <div class="detail-empty-sub">Click a task to inspect.</div>
+        </div>
+        <div class="detail-body" id="detail-body" style="display:none">
+          <div class="detail-header">
+            <div class="detail-id" id="d-id">—</div>
+            <span class="status-pill" id="d-status">—</span>
+          </div>
+          <div class="detail-label" id="d-label">—</div>
+
+          <div class="detail-meta" id="d-meta"></div>
+
+          <section class="detail-section" id="d-blocking-section" style="display:none">
+            <div class="section-title">blocking</div>
+            <div class="blockers" id="d-blockers"></div>
+          </section>
+
+          <section class="detail-section" id="d-deps-section" style="display:none">
+            <div class="section-title">depends on</div>
+            <div class="edge-list" id="d-deps"></div>
+          </section>
+
+          <section class="detail-section" id="d-dependents-section" style="display:none">
+            <div class="section-title">depended on by</div>
+            <div class="edge-list" id="d-dependents"></div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">actions</div>
+            <div class="actions">
+              <button class="act" data-act="center">Center</button>
+              <button class="act" data-act="focus">Focus component</button>
+              <button class="act" data-act="setgoal">Set as goal</button>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="s-tasks">0 tasks</span>
+      <span class="dot">·</span>
+      <span id="s-edges">0 edges</span>
+      <span class="dot">·</span>
+      <span id="s-crit">critical path: —</span>
+      <span class="spacer"></span>
+      <span id="s-last-event">last event: —</span>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

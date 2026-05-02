@@ -1,0 +1,174 @@
+% =====================================================================
+% spse4.bib
+%
+% BibTeX references for SPSE4 (Shared Priority System Editor, v4).
+%
+% Primary entry: spse4-techreport-2026 -- this is what external work
+% should cite when referring to SPSE4.
+%
+% Supporting entries are the foundational works the system builds on
+% (Allen 1983, Bratko 4e, Covington et al. 2012, SWI-Prolog,
+% Pengines, PDDL2.1/2.2, Triska CLP(FD), Cyc/microtheories) and the
+% SPSE2 predecessor.
+%
+% All DOIs and bibliographic details verified against publisher
+% records.
+% =====================================================================
+
+
+% ---------- Primary citation: SPSE4 itself ---------------------------
+
+@techreport{spse4-techreport-2026,
+  author      = {Dougherty, Andrew},
+  title       = {{SPSE4}: A Multi-Relation Graph-Based Planning-Domain
+                 Editor for {SWI-Prolog}},
+  institution = {{FRDCSA} Project},
+  year        = {2026},
+  month       = apr,
+  type        = {Technical Report},
+  note        = {System description and design rationale for v0.1},
+  url         = {https://github.com/aindilis/spse4}
+}
+
+% ---------- The SPSE2 predecessor ------------------------------------
+                  
+@techreport{spse2-2011,
+  author      = {Dougherty, Andrew},
+  title       = {Temporal Planning and Inferencing for Personal Task
+                 Management with {SPSE2}},
+  institution = {{FRDCSA} Project},
+  year        = {2011},
+  type        = {Technical Report},
+  url         = {https://frdcsa.org/visual-aid/pdf/Temporal-Planning-and-Inferencing-for-Personal-Task-Management-with-SPSE2.pdf}
+}                
+
+% ---------- Allen interval algebra (foundation of pack-allen) --------
+
+@article{allen-1983,
+  author  = {Allen, James F.},
+  title   = {Maintaining Knowledge about Temporal Intervals},
+  journal = {Communications of the ACM},
+  volume  = {26},
+  number  = {11},
+  pages   = {832--843},
+  year    = {1983},
+  doi     = {10.1145/182.358434}
+}
+
+
+% ---------- Prolog coding conventions --------------------------------
+
+@book{bratko-2011,
+  author    = {Bratko, Ivan},
+  title     = {Prolog Programming for Artificial Intelligence},
+  edition   = {4th},
+  publisher = {Pearson Education},
+  year      = {2011},
+  isbn      = {978-0-321-41746-6}
+}
+
+@article{covington-style-2012,
+  author  = {Covington, Michael A. and Bagnara, Roberto and
+             O'Keefe, Richard A. and Wielemaker, Jan and
+             Price, Simon},
+  title   = {Coding Guidelines for {Prolog}},
+  journal = {Theory and Practice of Logic Programming},
+  volume  = {12},
+  number  = {6},
+  pages   = {889--927},
+  year    = {2012},
+  doi     = {10.1017/S1471068411000391},
+  note    = {Preprint at \url{https://arxiv.org/abs/0911.2899}}
+}
+
+
+% ---------- SWI-Prolog and Pengines ----------------------------------
+
+@article{wielemaker-swipl-2012,
+  author  = {Wielemaker, Jan and Schrijvers, Tom and
+             Triska, Markus and Lager, Torbj{\"o}rn},
+  title   = {{SWI-Prolog}},
+  journal = {Theory and Practice of Logic Programming},
+  volume  = {12},
+  number  = {1--2},
+  pages   = {67--96},
+  year    = {2012},
+  doi     = {10.1017/S1471068411000494}
+}
+
+@article{lager-pengines-2014,
+  author  = {Lager, Torbj{\"o}rn and Wielemaker, Jan},
+  title   = {Pengines: Web Logic Programming Made Easy},
+  journal = {Theory and Practice of Logic Programming},
+  volume  = {14},
+  number  = {4--5},
+  pages   = {539--552},
+  year    = {2014},
+  doi     = {10.1017/S1471068414000192}
+}
+
+
+% ---------- PDDL2.2 (foundation of pack-pddl) ------------------------
+
+@article{fox-long-pddl21-2003,
+  author  = {Fox, Maria and Long, Derek},
+  title   = {{PDDL2.1}: An Extension to {PDDL} for Expressing Temporal
+             Planning Domains},
+  journal = {Journal of Artificial Intelligence Research},
+  volume  = {20},
+  pages   = {61--124},
+  year    = {2003},
+  doi     = {10.1613/jair.1129}
+}
+
+@techreport{edelkamp-pddl22-2004,
+  author      = {Edelkamp, Stefan and Hoffmann, J{\"o}rg},
+  title       = {{PDDL2.2}: The Language for the Classical Part of the
+                 4th International Planning Competition},
+  institution = {Albert-Ludwigs-Universit{\"a}t Freiburg},
+  number      = {195},
+  year        = {2004},
+  type        = {Technical Report}
+}
+
+
+% ---------- CLP(FD) (used by pack-allen scheduler) -------------------
+
+@inproceedings{triska-clpfd-2012,
+  author    = {Triska, Markus},
+  title     = {The Finite Domain Constraint Solver of {SWI-Prolog}},
+  booktitle = {Functional and Logic Programming -- 11th International
+               Symposium, {FLOPS} 2012},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {7294},
+  pages     = {307--316},
+  publisher = {Springer},
+  year      = {2012},
+  doi       = {10.1007/978-3-642-29822-6\_24}
+}
+
+
+% ---------- Microtheories (foundation of pack-mt-store) --------------
+
+@article{guha-lenat-cyc-1990,
+  author  = {Guha, Ramanathan V. and Lenat, Douglas B.},
+  title   = {{CYC}: A Midterm Report},
+  journal = {AI Magazine},
+  volume  = {11},
+  number  = {3},
+  pages   = {32--59},
+  year    = {1990},
+  doi     = {10.1609/aimag.v11i3.842}
+}
+
+
+% ---------- The wider FRDCSA project ---------------------------------
+
+@misc{frdcsa-project,
+  author       = {Dougherty, Andrew},
+  title        = {{FRDCSA}: Formalized Research Database --
+                  Cluster, Study and Apply},
+  year         = {2026},
+  note         = {Project website, ongoing since 1998},
+  howpublished = {\url{https://frdcsa.org/}}
+}                  

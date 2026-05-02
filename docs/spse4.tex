@@ -1,0 +1,885 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ==========================================================================
+% SPSE4 v0.1 -- System Description and Design Rationale
+% Andrew Dougherty, FRDCSA / FRKCSA Project, April 2026
+%
+% This LaTeX source is hand-authored to match the master Org-mode document
+% (spse4.org) exactly.  If you edit the Org file, regenerate the PDF either
+% by running the supplied build.sh (which uses this .tex as the master for
+% typesetting) or by hand-updating this file.
+% ==========================================================================
+
+\usepackage[margin=1in]{geometry}
+\usepackage[activate={true,nocompatibility},protrusion=true,expansion=false]{microtype}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage[most]{tcolorbox}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{doi}
+\usepackage{listings}
+\usepackage{fancyhdr}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{1em}{}
+\setlist{nosep,leftmargin=*,topsep=2pt}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{coderule}{RGB}{220,220,220}
+
+\lstset{%
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{coderule},
+  framesep=4pt,
+  xleftmargin=6pt,
+  xrightmargin=6pt,
+  aboveskip=6pt,
+  belowskip=6pt,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small SPSE4 v0.1}
+\rhead{\small FRDCSA / FRKCSA}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.2pt}
+
+\setlength{\parskip}{4pt plus 1pt minus 1pt}
+\setlength{\parindent}{0pt}
+
+\title{\textbf{SPSE4: A Multi-Relation Graph-Based Planning-Domain Editor for SWI-Prolog}\\
+       \large System Description and Design Rationale for v0.1}
+\author{Andrew Dougherty\\
+        \small FRDCSA / FRKCSA Project\\
+        \small \texttt{adougher9@yahoo.com}}
+\date{May 2, 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent SPSE4 is a multi-relation graph-based planning-domain editor for
+SWI-Prolog, implemented as five composable Prolog packs totaling
+approximately 3,900 lines with 79 unit tests. It succeeds SPSE2 (2011,
+Perl/Tk) and SPSE2-Formalog (SWI-Prolog bridge) by consolidating the task
+ontology, temporal reasoning, planning-language I/O, scheduling, and
+reactive execution into a single process with a single data model, rooted in
+microtheories rather than Perl UniLang round-trips. The system integrates
+Allen's interval algebra with CLP(FD) for schedule feasibility, persistent
+microtheories with per-context access control and audit, a full PDDL/HDDL
+parser and emitter with a planner-capability match function, and a
+real-datetime scheduler with critical-path analysis and broadcast-based
+reactive triggers. This report describes the v0.1 architecture, the
+pack-by-pack decomposition, the key design decisions with their rationale,
+a worked end-to-end example driving the FRDCSA autopackager's priority
+queue, and the roadmap to v0.2.
+\end{abstract}
+
+\begin{center}
+\fbox{\parbox{0.92\linewidth}{\centering\small
+\textbf{Draft.}\ This document is a working draft under active revision.
+Technical descriptions reflect the v0.1 codebase as of the date above, but
+prose, citations, and architectural framing may contain inaccuracies and
+are subject to change. Please consult the GitHub repository at
+\url{https://github.com/aindilis/spse4} for the current source and the
+latest revision of this document. Feedback is welcome.
+}}
+\end{center}
+\vspace{0.5em}
+
+\tableofcontents
+\vspace{1em}
+
+% ==========================================================================
+\section{Introduction}
+% ==========================================================================
+
+The Shared Priority System Editor v2 (SPSE2) was described in the 2011
+FRDCSA technical report \emph{Temporal Planning and Inferencing for
+Personal Task Management with SPSE2} \citep{spse2-2011}. Its
+architecture tied together a Perl/Tk GUI, the FRDCSA UniLang messaging
+layer, the FreeKBS2 knowledge-base server, the Verber PDDL translator,
+and the LPG-TD planner. A companion module, SPSE2-Formalog, bridged
+portions of that world to SWI-Prolog so that knowledge-engineering and
+inference could happen where the Prolog infrastructure already was.
+
+Over fifteen years of use, two things became clear. First, the round-trip
+architecture---Perl emitting UniLang messages to a FreeKBS2 image, Prolog
+pulling facts by \emph{kquery} and flattening them into \texttt{holds/2},
+Verber translating back out to PDDL, and a planner returning a plan that got
+re-read into the GUI---was a source of both latency and fragility. Second,
+the core data model (typed goals, typed binary edges, per-context
+assertion) was sound and worth preserving. What needed rebuilding was the
+infrastructure around it, not the ontology.
+
+SPSE4 is that rebuild. It is not a port of SPSE2 to Prolog; it is a
+first-principles redesign of a planning-domain editor as a set of
+composable Prolog packs, any of which can be used standalone. The
+target audience is threefold: (1) the author's own daily planning and
+scheduling needs via the Free Life Planner (FLP); (2) the FRDCSA
+\citep{frdcsa-project} subsystem ecosystem, including the
+autopackager's work queue; and (3) the wider SWI-Prolog and
+AI-planning communities, for whom \texttt{pack-allen},
+\texttt{pack-mt-store}, and \texttt{pack-pddl} solve problems with no
+other clean SWI-Prolog solutions.
+
+This v0.1 release ships the five foundational packs plus a live
+demonstration seeded with the autopackager's actual priority queue. It does
+not ship the collaboration server, the browser client, or the Emacs mode;
+those belong to v0.2, which is sketched in Section~\ref{sec:roadmap}.
+
+% ==========================================================================
+\section{Background: What SPSE2 Was, and What Needed Rebuilding}
+% ==========================================================================
+
+The SPSE2 technical report was prepared as a submission to the ICAPS
+2011 Workshop on Scheduling and Planning Applications but was not
+accepted for publication; it has remained available as a project
+document on the FRDCSA website. It describes a system with three
+conceptually separate layers entangled through the FRDCSA middleware:
+
+\begin{enumerate}
+\item An \emph{ontology} of goals as graph nodes, with unary predicates
+  marking status (\texttt{complete}, \texttt{cancelled}, \texttt{deleted},
+  \texttt{showstopper}, \texttt{ridiculous}, \texttt{obsoleted},
+  \texttt{rejected}, \texttt{skipped}) and binary predicates marking
+  structural relations (\texttt{depends}, \texttt{provides}, \texttt{eases},
+  \texttt{prefer}). Per-goal metadata included \texttt{has-NL}
+  (natural-language label), \texttt{has-source}, \texttt{asserter},
+  \texttt{start-date}/\texttt{end-date}, \texttt{costs}, \texttt{earns},
+  \texttt{severity}, \texttt{event-duration}, \texttt{has-formalization},
+  \texttt{has-parent}, \texttt{involves}, \texttt{ethicality-concern}, and
+  \texttt{hard-time-constraints}.
+
+\item A \emph{PDDL bridge}: SPSE2 $\to$ Verber $\to$ PDDL $\to$ LPG-TD $\to$
+  plan, with calendar events (ICS, Google Calendar) translated into PDDL
+  2.2 timed initial literals and a durative \texttt{Complete} action gated
+  by an \texttt{over all ((not has-time-constraints ?e) or possible(?e))}
+  condition.
+
+\item A \emph{context system}: everything lived inside
+  \texttt{holds(Context, Fact)}, with the contexts serving as microtheories
+  in the Cyc sense---per-domain scopes the user could switch between.
+\end{enumerate}
+
+The SPSE2-Formalog layer read contexts via shelling out to the Perl
+\texttt{spse2} binary, pulled facts via \texttt{kquery} into
+\texttt{holds/2} assertions, and exposed accessors like \texttt{goal/1},
+\texttt{depends/2}, \texttt{has-NL/2} that flattened the context prefix \citep{guha-lenat-cyc-1990}.
+The actual planning, GUI, and calendar logic remained in Perl/Tk and Emacs
+Lisp.
+
+Three properties of that architecture motivated the rebuild:
+
+\begin{itemize}
+\item \emph{No persistence beyond the Perl image.} The goal graph lived in
+  a running Perl process's memory, re-asserted from dumps on startup.
+  Concurrent access was impossible; the image was the bottleneck.
+\item \emph{Scheduling round-trips had to go through PDDL.} Even simple
+  ``when can this happen given these constraints'' queries involved PDDL
+  generation and an external planner. This made sense in 2011 when
+  Prolog's CLP(FD) was less mature; in 2026 it is unnecessary overhead for
+  common cases.
+\item \emph{The context system was ad-hoc.} \texttt{holds/2} worked, but
+  there was no ACL, no audit trail, and no genuine inheritance in the Cyc
+  \texttt{genlMt} sense.
+\end{itemize}
+
+SPSE4 addresses all three by (1) persisting microtheories through a
+dedicated store pack, (2) providing native CLP(FD)-based scheduling as the
+common case while keeping PDDL emission available for the hard cases, and
+(3) making microtheories first-class objects with owners, visibility,
+inheritance, and audit.
+
+% ==========================================================================
+\section{Design Rationale: Six Decisions That Shaped v0.1}
+\label{sec:rationale}
+% ==========================================================================
+
+Before the architecture is described, six design decisions taken during the
+v0.1 design session are worth stating explicitly, because they determined
+what v0.1 \emph{is} and what it deliberately \emph{is not}.
+
+\subsection{Native Prolog everywhere, no Perl round-trips}
+
+The entire SPSE4 runtime is SWI-Prolog. The SPSE2 legacy dump format is
+supported as an \emph{importer}, not as a live bridge. A Perl installation
+is not required to use SPSE4. This decision follows from the consolidation
+argument in \S2: the main pain in SPSE2 was the seams between components,
+and the simplest way to eliminate seams is to eliminate components.
+
+\subsection{Microtheories as first-class, persistent, ACL-aware objects}
+
+The \texttt{holds(Context, Fact)} pattern from SPSE2 is replaced by
+\texttt{ist(Mt, Fact)} in \texttt{pack-mt-store} (naming follows Guha's
+CycL convention \citep{guha-lenat-cyc-1990}), with \texttt{genlMt(Sub, Super)} for inheritance,
+per-microtheory owner and visibility, and an append-only audit log of every
+assertion and retraction. This is strictly more structure than SPSE2
+provided, but the extra machinery is what enables the collaboration server
+planned for v0.2: you cannot broadcast diffs safely without knowing who
+asserted what, when, under whose authority.
+
+\subsection{Scheduling is CLP(FD)-native; PDDL is an exporter}
+
+Allen's thirteen interval relations \citep{allen-1983} are implemented directly over CLP(FD)
+\citep{triska-clpfd-2012} finite-domain variables in \texttt{pack-allen}. Common scheduling
+questions---``is this set of relations consistent?'', ``find concrete
+start/end times for these intervals''---are answered by the constraint
+solver without any PDDL round trip. \texttt{pack-pddl} emits (and parses)
+PDDL when the user explicitly wants to hand a domain and problem to an
+external planner, but this is never on the critical path for daily use.
+
+\subsection{Native Prolog behavior-tree executor, not BT.CPP}
+
+The reactive execution layer in v0.2 will be a native Prolog behavior-tree
+interpreter, not a binding to BT.CPP. Rationale: the FLP use case is
+cognitive-prosthetic task execution, not robotics; BT.CPP's runtime
+properties (real-time guarantees, C++ callable leaves) are not needed, and
+embedding Prolog into a BT.CPP tick loop is architecturally awkward. If a
+robotics use case ever emerges, BT.CPP XML is a one-way exporter
+target---no runtime dependency on the other direction.
+
+\subsection{CycL is emitted as text, not called live}
+
+There is no live SWI-Prolog $\leftrightarrow$ Cyc client in v0.1.
+\texttt{pack-spse4-core} emits \texttt{.cycl} files using the vocabulary
+from the SPSE2 Logical Operators work (\texttt{\#\$isa},
+\texttt{\#\$SPSE2Mt}, \texttt{(am '(\ldots) Mt)} syntax). When a working
+Prolog-to-Cyc bridge exists (Doug Miles's PrologCyc or another
+collaborator's reimplementation), it can consume these files. The system
+builds against a stable text format and does not depend on a live Cyc
+image.
+
+\subsection{Each pack is standalone-useful}
+
+The five packs are designed so that each one is worth installing by itself.
+\texttt{pack-allen} is a complete Allen interval algebra implementation
+for anyone doing temporal reasoning in SWI-Prolog; \texttt{pack-mt-store}
+is a persistent microtheory store for anyone doing KR; \texttt{pack-pddl}
+is a PDDL parser and emitter for anyone working with AI planners. The
+SPSE4-specific packs sit on top of these, but the foundation packs do not
+know or care about SPSE4. This increases the blast radius of bug reports
+(anyone using \texttt{pack-pddl} may find bugs in it, which benefits
+SPSE4) and opens a straightforward contribution path for the wider
+community.
+
+% ==========================================================================
+\section{Architecture Overview}
+\label{sec:arch}
+% ==========================================================================
+
+The v0.1 architecture is a three-layer dependency graph:
+
+\begin{center}
+\begin{tabular}{@{}l@{}}
+\texttt{pack-spse4-scheduler} \quad (datetimes, critical path, reactive triggers)\\
+\quad $\downarrow$ depends on $\downarrow$\\
+\texttt{pack-spse4-core} \quad (task ontology, edges, projections, SPSE2 import)\\
+\quad $\downarrow$ depends on $\downarrow$\\
+\texttt{pack-mt-store} \quad \texttt{pack-allen} \quad \texttt{pack-pddl}\\
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item The \emph{foundation layer} (\texttt{pack-allen},
+  \texttt{pack-mt-store}, \texttt{pack-pddl}) has no SPSE4-specific
+  dependencies. Each pack is independently installable and useful to the
+  wider community.
+\item The \emph{core layer} (\texttt{pack-spse4-core}) defines the task
+  ontology and depends on \texttt{pack-mt-store} (for microtheory storage)
+  and \texttt{pack-allen} (for temporal relations on task intervals). It
+  also contains the SPSE2 legacy importer and the projection queries that
+  filter the graph by relation kind, status, or microtheory membership.
+\item The \emph{scheduler layer} (\texttt{pack-spse4-scheduler}) adds
+  real-datetime scheduling, critical-path analysis, and broadcast-based
+  reactive triggers, depending on \texttt{pack-spse4-core} and
+  \texttt{pack-allen}.
+\end{itemize}
+
+All packs follow the Prolog coding conventions of \citet{covington-style-2012}
+and \citet{bratko-2011}: \texttt{:- module/2} on every file, PlDoc docstrings
+on every exported predicate, PlUnit test files colocated in \texttt{t/},
+strings for all user-visible text, and atoms for identifiers and enumerated
+values. These conventions are also consistent with the broader SWI-Prolog
+ecosystem \citep{wielemaker-swipl-2012}.
+
+% ==========================================================================
+\section{The Five Packs}
+\label{sec:packs}
+% ==========================================================================
+
+\subsection{\texttt{pack-allen}: Allen Interval Algebra + CLP(FD) Scheduler}
+\label{sec:allen}
+
+Approximately 200 lines, 9 tests. Implements the thirteen primitive binary
+relations between closed intervals on a linear timeline \citep{allen-1983}: \texttt{before},
+\texttt{meets}, \texttt{overlaps}, \texttt{starts}, \texttt{during},
+\texttt{finishes}, \texttt{equals}, and their inverses \texttt{after},
+\texttt{met\_by}, \texttt{overlapped\_by}, \texttt{started\_by},
+\texttt{contains}, \texttt{finished\_by}.
+
+The module exports:
+
+\begin{itemize}
+\item \texttt{allen\_relation/1}, \texttt{allen\_inverse/2},
+  \texttt{allen\_compose/3}---the qualitative layer: relation enumeration,
+  inverse lookup, and the composition table (what relation holds between
+  A and C, given A/B and B/C).
+\item \texttt{interval/3}, \texttt{constrain\_interval/3}---interval
+  declaration with CLP(FD) start and end variables, and constraint posting
+  by qualitative relation.
+\item \texttt{schedule/3}---given a list of intervals and a list of
+  qualitative constraints, find concrete integer start/end times
+  satisfying all constraints.
+\item \texttt{relation\_implies/2}---strict-to-loose reasoning (e.g.\
+  \texttt{starts} implies ``not after'').
+\end{itemize}
+
+A typical call:
+
+\begin{lstlisting}
+?- schedule([a, b, c],
+            [ constraint(a, before, b),
+              constraint(b, overlaps, c) ],
+            Solution).
+\end{lstlisting}
+
+returns concrete integer timelines for \texttt{a}, \texttt{b}, \texttt{c}
+that respect both constraints, or fails if the constraint set is
+inconsistent. The \texttt{schedule/3} predicate is the bridge between
+qualitative Allen reasoning and concrete integer timelines;
+\texttt{pack-spse4-scheduler} layers real datetime arithmetic on top by
+treating the integers as Unix-epoch seconds.
+
+\textbf{Why this matters standalone.} There is no other clean
+Allen-algebra implementation for SWI-Prolog. The composition table alone
+is a reusable contribution; wiring it to CLP(FD) makes it directly useful
+for scheduling.
+
+\subsection{\texttt{pack-mt-store}: Persistent Microtheory Store}
+\label{sec:mt}
+
+Approximately 300 lines, 10 tests. Implements a microtheory store with
+\texttt{ist(Mt, Fact)}, \texttt{genlMt(Sub, Super)},
+\texttt{specialization/2}, per-microtheory owner and visibility metadata,
+and an append-only audit log. The name and vocabulary follow the CycL
+conventions of \citet{guha-lenat-cyc-1990} so the code reads naturally to
+anyone familiar with Cyc.
+
+Core predicates: \texttt{mt\_create/2} (create a microtheory with owner
+and visibility options); \texttt{mt\_specialize/2} (declare a
+\texttt{genlMt} relation, i.e.\ inheritance); \texttt{mt\_assert/2},
+\texttt{mt\_retract/2} (assertion and retraction, audit-logged);
+\texttt{ist/2} (query facts local to a microtheory);
+\texttt{ist\_inherited/2} (query facts visible through the
+\texttt{genlMt} lattice); and \texttt{mt\_audit/2} (stream the audit log
+for a microtheory).
+
+Example:
+
+\begin{lstlisting}
+?- mt_create(general_kb, [owner=andrew, visibility=public]).
+?- mt_create(medical_kb, [owner=andrew]).
+?- mt_specialize(medical_kb, general_kb).
+?- mt_assert(general_kb, organism(andrew, human)).
+?- mt_assert(medical_kb, takes(andrew, vitaminD)).
+?- ist_inherited(medical_kb, Fact).
+Fact = takes(andrew, vitaminD) ;
+Fact = organism(andrew, human).
+\end{lstlisting}
+
+Vocabulary mapping:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+SPSE2 & SPSE4 \texttt{pack-mt-store} \\
+\midrule
+\texttt{holds(Context, Fact)} & \texttt{ist(Context, Fact)} \\
+context inheritance (ad-hoc)  & \texttt{specialization/2}, \texttt{genlMt/2} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Cyc & SPSE4 \texttt{pack-mt-store} \\
+\midrule
+\texttt{(ist Mt Fact)}        & \texttt{ist(Mt, Fact)} \\
+\texttt{(genlMt Sub Super)}   & \texttt{genlMt(Sub, Super)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+v0.1 stores microtheories in-memory with persistence hooks in place but
+not yet wired; v0.2 will add the MySQL backend via the planned
+\texttt{prolog-mysql-store} integration for true multi-process persistence.
+
+\subsection{\texttt{pack-spse4-core}: Task Ontology and Graph Operations}
+\label{sec:core}
+
+Approximately 450 lines, 13 tests. Defines the core data model of SPSE4:
+a \emph{priority system} is a labelled directed multigraph stored in one
+or more microtheories, with tasks as nodes and typed binary relations as
+edges.
+
+All user-visible text (NL labels, descriptions, notes) is stored as
+\textbf{strings}; internal identifiers, predicate names, relation kinds,
+and enumerated values are \textbf{atoms}. This follows Covington's coding
+conventions.
+
+Task properties:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lp{0.62\linewidth}@{}}
+\toprule
+Key & Value type \\
+\midrule
+\texttt{has\_nl}         & string --- natural-language label \\
+\texttt{description}     & string --- longer text \\
+\texttt{task\_kind}      & atom --- \texttt{primitive} $\vert$ \texttt{compound} $\vert$ \texttt{recurring} $\vert$ \texttt{ongoing} $\vert$ \texttt{milestone} \\
+\texttt{overlap\_class}  & atom --- \texttt{exclusive} $\vert$ \texttt{foregroundable} $\vert$ \texttt{backgroundable} $\vert$ \texttt{ambient} $\vert$ \texttt{batched} \\
+\texttt{status}          & atom --- \texttt{open} $\vert$ \texttt{in\_progress} $\vert$ \texttt{completed} $\vert$ \texttt{cancelled} $\vert$ \texttt{deleted} $\vert$ \texttt{skipped} $\vert$ \texttt{obsoleted} $\vert$ \texttt{rejected} $\vert$ \texttt{showstopper} $\vert$ \texttt{ridiculous} $\vert$ \texttt{habitual} \\
+\texttt{duration}        & term --- \texttt{fixed(N)} $\vert$ \texttt{range(Lo,Hi)} $\vert$ \texttt{distribution(K,Ps)} $\vert$ \texttt{effort(Total)} \\
+\texttt{earliest\_start} & datetime term \\
+\texttt{latest\_finish}  & datetime term \\
+\texttt{needs\_resource} & atom --- may repeat \\
+\texttt{costs}, \texttt{earns} & term --- e.g.\ \texttt{dollars(30)} \\
+\texttt{recurrence}      & string --- RFC 5545 RRULE \\
+\texttt{triggers\_when}  & callable goal \\
+\texttt{source}          & arbitrary term (e.g.\ \texttt{spse2(Ctx)} to track provenance) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Edges carry an explicit \texttt{relation\_kind} discriminator so the same
+pair of tasks can stand in multiple relations simultaneously:
+
+\begin{itemize}
+\item \texttt{depends}---A must complete before B can start (causal prerequisite)
+\item \texttt{provides}, \texttt{eases}, \texttt{prefer}---the SPSE2 relations, preserved
+\item \texttt{attacks}, \texttt{supports}---argumentation relations for contingent-plan reasoning
+\item \texttt{subsumes}---HTN-style abstraction
+\item \texttt{temporal/Allen-relation}---qualitative temporal constraints
+\end{itemize}
+
+Graph projection is composable. The projection predicate takes a filter
+expression built from \texttt{kind/1}, \texttt{status/1},
+\texttt{in\_mt/1}, \texttt{and/2}, \texttt{or/2}, \texttt{not/1}, and
+returns the induced subgraph:
+
+\begin{lstlisting}
+% Project the dependency subgraph of medical_kb,
+% excluding completed tasks:
+?- project_graph(medical_kb,
+                 and(kind(depends), not(status(completed))),
+                 proj(Nodes, Edges)).
+\end{lstlisting}
+
+The SPSE2 legacy importer reads \texttt{holds/2} dumps and maps them to
+the new ontology:
+
+\begin{lstlisting}
+?- import_spse2_file('~/spse2-dumps/pse.holds', legacy_pse).
+\end{lstlisting}
+
+The importer translates \texttt{holds(Ctx, goal('entry-fn'(P,I)))} to a
+task, \texttt{holds(Ctx, 'has-NL'(\ldots, NL))} to the \texttt{has\_nl}
+string, \texttt{holds(Ctx, depends(A,B))} to an \texttt{edge(A, depends,
+B)}, \texttt{holds(Ctx, complete(\ldots))} to \texttt{status=completed},
+and the other SPSE2 statuses, \texttt{costs}, \texttt{earns}, etc.\
+analogously.
+
+\subsection{\texttt{pack-pddl}: PDDL/HDDL Parser and Emitter}
+\label{sec:pddl}
+
+Approximately 560 lines, 20 tests. A full DCG-based parser and emitter for
+PDDL 1.2, 2.1 \citep{fox-long-pddl21-2003}, 2.2 \citep{edelkamp-pddl22-2004},
+3.0, 3.1, and HDDL, together with a
+planner-capability table and a \texttt{required\_features/2} utility that
+inspects a parsed domain for the PDDL features it uses.
+
+Key predicates: \texttt{parse\_pddl/2} (parse a PDDL file into a structured
+Prolog term); \texttt{emit\_pddl/2} (emit a structured term as PDDL text);
+\texttt{required\_features/2} (inspect a parsed domain, return the set of
+PDDL features it uses, such as \texttt{:typing},
+\texttt{:durative-actions}, \texttt{:timed-initial-literals});
+\texttt{eligible\_planners/2} (given a feature set, return planners capable
+of handling it, from the capability table).
+
+The round-trip property \emph{parse $\circ$ emit $\circ$ parse $\equiv$
+parse} is verified by a dedicated test. The planner table covers the
+common temporal and HTN planners and is data-driven---adding a new planner
+is a single \texttt{planner\_capability/2} fact.
+
+\textbf{Why this matters standalone.} No other SWI-Prolog pack provides a
+complete PDDL parser across the language versions. The feature-detection
+utility is particularly useful for the autopackager's workflow of deciding
+which planner to hand a given domain to.
+
+\subsection{\texttt{pack-spse4-scheduler}: Real-Datetime Scheduling and Reactive Triggers}
+\label{sec:scheduler}
+
+Approximately 450 lines, 15 tests. Extends \texttt{pack-allen}'s
+integer-timeline scheduler to real calendar time, adds deadline propagation
+and critical-path analysis, and wires \texttt{when/2}-driven reactive
+triggers that fire when a task's dependencies become satisfied.
+
+Real datetimes use SWI-Prolog's built-in \texttt{library(date)} (Unix-epoch
+seconds as the internal representation) with \texttt{format\_time/3} for
+display. No external date library is required; callers who prefer the
+\texttt{julian} pack can still use its values as inputs since any integer
+seconds-since-epoch is accepted.
+
+Core capabilities:
+
+\begin{itemize}
+\item \texttt{schedule\_tasks/3}---schedule all tasks in a microtheory
+  respecting asserted temporal relations, durations, earliest\_starts, and
+  latest\_finishes.
+\item \texttt{critical\_path/3}---compute the critical path from ready
+  tasks to a goal task, returning the path along with its length in
+  seconds.
+\item \texttt{propagate\_deadlines/2}---given a \texttt{latest\_finish} on
+  a downstream task and known durations of its upstream dependencies,
+  compute the implicit \texttt{latest\_finish} of the upstream tasks
+  (classical PERT backward pass).
+\item \texttt{task\_earliest\_start/3}, \texttt{task\_latest\_finish/3},
+  \texttt{task\_slack/3}---point-query interface for individual task timing
+  and slack (latest-start minus earliest-start).
+\item \texttt{on\_dependencies\_complete/3}---register a goal that should
+  fire when a given task's dependencies all reach \texttt{status=completed}.
+\item \texttt{trigger\_ready\_tasks/1}---scan a microtheory and broadcast
+  \texttt{ready\_task\_event(Mt, TaskId)} for every task whose dependencies
+  are now satisfied.
+\end{itemize}
+
+The reactive layer uses \texttt{library(broadcast)} rather than
+\texttt{when/2} directly, because \texttt{when/2}'s coroutining semantics
+tie the trigger to a specific query scope; broadcast gives the
+server-authoritative fanout the v0.2 collaboration layer will need (see
+\citet{lager-pengines-2014} for the Pengines transport this enables).
+
+% ==========================================================================
+\section{The Autopackager Demo: An End-to-End Walkthrough}
+\label{sec:demo}
+% ==========================================================================
+
+The demo at \texttt{autopackager\_demo.pl} seeds SPSE4 with eleven tasks
+drawn from the FRDCSA autopackager's actual priority queue---package
+\texttt{eprover}, \texttt{peleus}, \texttt{vampire}, \texttt{acl2},
+\texttt{freekbs2}, submit to mentors, prepare the FLP public release, and
+several intermediate milestones. It then exercises every major SPSE4
+capability on real data.
+
+\subsection{Seeding the microtheory}
+
+The demo opens by creating a microtheory and asserting eleven tasks with
+their dependencies, durations, statuses, and declared earliest\_starts.
+Three are already \texttt{completed} (\texttt{pkg\_eprover},
+\texttt{pkg\_peleus}, \texttt{pkg\_superlu}), one is \texttt{in\_progress}
+(\texttt{pkg\_vampire}), and the rest are \texttt{open}.
+
+\begin{lstlisting}
+Seeded autopackager microtheory with 11 tasks.
+\end{lstlisting}
+
+\subsection{Identifying ready tasks}
+
+The demo then projects the dependency graph and identifies which tasks
+have all prerequisites satisfied, producing the list of tasks that could
+be started immediately.
+
+\subsection{Critical path to the FLP public release}
+
+\texttt{critical\_path/3} is called with \texttt{pkg\_flp\_public\_release}
+as the goal, and returns the critical path along with its cumulative
+duration. On the seeded data this path runs through \texttt{pkg\_vampire}
+(the current in-progress task), which is the actual bottleneck in the
+real queue.
+
+\subsection{Schedule projection with real dates}
+
+\texttt{schedule\_tasks/3} runs the full CLP(FD) schedule against the
+asserted durations and earliest\_starts. For the tasks with declared start
+dates (\texttt{pkg\_vampire} at April 22, 2026), the scheduler places them
+on their declared dates; for tasks without declared starts, it schedules
+them starting from ``today'' (the demo's run date). Dependencies are
+honored: \texttt{submit\_autopkg\_to\_mentors} is placed after
+\texttt{pkg\_vampire} completes.
+
+Representative output (edited for brevity):
+
+\begin{lstlisting}
+pkg_vampire        : 2026-04-22 -> 2026-04-25  (3 days)
+submit_mentors     : 2026-04-25 -> 2026-04-26  (1 day, waits on vampire)
+pkg_acl2           : 2026-04-22 -> 2026-04-24
+pkg_freekbs2       : 2026-04-22 -> 2026-04-23
+pkg_flp_release    : 2026-05-04 -> 2026-05-04  (milestone)
+\end{lstlisting}
+
+\subsection{Readiness gate with blocker identification}
+
+A gate check on \texttt{submit\_autopkg\_to\_mentors} reports:
+
+\begin{lstlisting}
+  pkg_eprover: completed
+  pkg_peleus: completed
+  pkg_vampire: in_progress
+  NOT YET -- 1 blocker(s) outstanding:
+    pkg_vampire (in_progress)
+\end{lstlisting}
+
+The gate not only returns a boolean but names the specific blockers and
+their current statuses---this is the actual information a user needs to
+act on the gate failure.
+
+\subsection{Reactive trigger demonstration}
+
+Finally the demo registers a reactive trigger: ``when
+\texttt{submit\_autopkg\_to\_mentors} becomes ready, announce so.'' The
+trigger registers silently. The demo then simulates \texttt{pkg\_vampire}
+completing (by updating its status to \texttt{completed} and calling
+\texttt{trigger\_ready\_tasks/1}), and the trigger fires automatically
+with the announcement.
+
+\begin{lstlisting}
+Simulating vampire completion:
+  *** AUTOMATIC: all prereqs complete, time to submit! ***
+\end{lstlisting}
+
+\subsection{Why this demo matters}
+
+Every piece of the classical command-and-control
+observe-orient-decide-act loop is represented in this single end-to-end
+run: perception (task status queries), comprehension (dependency graph
+projection), projection (the schedule), decision (gate checks,
+critical-path identification), and action (reactive trigger fires on
+state change). This is real C2 reasoning on real operational data---not a
+toy. It is the first time SPSE4 has done something meaningful with the
+author's actual planning queue, and it validates the architecture: the
+five packs compose cleanly, the demo is $\approx$200 lines of application
+code, and the user-visible behavior is correct on the first full
+end-to-end run.
+
+% ==========================================================================
+\section{Running the System}
+% ==========================================================================
+
+\subsection{Installation}
+
+Install SWI-Prolog $\geq$ 9.0.0. Then either (a) use the five packs as a
+meta-project from the SPSE4 source tree, or (b) install each pack
+individually via \texttt{pack\_install/1} from its GitHub URL (planned for
+v0.2).
+
+Meta-project use:
+
+\begin{lstlisting}
+cd ~/Downloads/spse4
+swipl run_all_tests.pl          # expected: 79 tests green, no warnings
+swipl autopackager_demo.pl      # expected: end-to-end demo output
+\end{lstlisting}
+
+\subsection{Loading individual packs from Prolog}
+
+\begin{lstlisting}
+?- use_module(library(allen)).
+?- use_module(library(mt_store)).
+?- use_module(library(spse4_core)).
+?- use_module(library(pddl)).
+?- use_module(library(spse4_scheduler)).
+\end{lstlisting}
+
+\subsection{Per-pack test suites}
+
+Each pack ships a \texttt{t/*.plt} PlUnit file. Run with:
+
+\begin{lstlisting}
+swipl -g "[t/allen], run_tests" -t halt pack-allen/prolog/allen.pl
+\end{lstlisting}
+
+% ==========================================================================
+\section{Coding Conventions}
+% ==========================================================================
+
+The entire codebase follows a small set of explicit rules, consistent
+across all five packs:
+
+\begin{itemize}
+\item \emph{Covington-Bratko style.} Lowercase-underscore predicate names,
+  \texttt{:- module/2} on every source file, PlDoc docstrings on every
+  exported predicate, PlUnit tests colocated as \texttt{t/<module>.plt}.
+\item \emph{Strings for user-visible text.} Labels, descriptions,
+  natural-language fragments, free-form notes---all SWI strings
+  (\texttt{""} quoted).
+\item \emph{Atoms for identifiers and enums.} Task IDs, relation kinds,
+  status values, microtheory names, predicate names---all Prolog atoms
+  (\texttt{''} or unquoted).
+\item \emph{No side effects outside designated I/O modules.} Predicates
+  that mutate the store are in \texttt{mt\_store} and nowhere else.
+\item \emph{Every exported predicate has both a ground-case test and a
+  variable-binding test.} This catches the most common class of bug (a
+  predicate that works for queries but fails when asked to generate
+  bindings, or vice versa).
+\end{itemize}
+
+These rules came out of the SPSE4 v0.1 session and are recorded here
+because they are the main reason the codebase held together across twelve
+bug-fix iterations without structural refactoring.
+
+% ==========================================================================
+\section{Roadmap to v0.2}
+\label{sec:roadmap}
+% ==========================================================================
+
+v0.1 delivers the foundational layer. The next release delivers the
+collaboration layer and two additional reasoning layers.
+
+\subsection{\texttt{pack-spse4-server}: Pengines HTTP/WebSocket Server}
+
+A SWI-Prolog Pengines server with basic authentication, per-microtheory
+access control enforcement, and \texttt{library(broadcast)} fanout so
+clients see diffs in near-real-time. Approximately 300 lines. Endpoints
+follow the standard Pengines API \citep{lager-pengines-2014}
+(\texttt{pengine/create},
+\texttt{pengine/send}, \texttt{pengine/pull\_response},
+\texttt{pengine/destroy}) extended with an SPSE4-specific
+projection-filter endpoint that returns only the nodes and edges visible
+under a given filter expression.
+
+\subsection{\texttt{spse4-web}: Cytoscape.js Client}
+
+A browser client using Cytoscape.js for graph rendering and
+\texttt{pengines.js} for the Prolog connection. The projection UI exposes
+checkboxes for \texttt{relation\_kind}, \texttt{in\_mt}, and
+\texttt{status}; nodes are colored by status and by critical-path
+membership. Approximately 500 lines of JS/HTML, single page, no framework.
+
+\subsection{\texttt{spse4-mode.el}: Emacs Mode}
+
+An Emacs mode using \texttt{pengine.el} (already written) to provide the
+same projection operations from inside Emacs, so SPSE4 becomes directly
+editable from \texttt{org-mode} buffers without leaving the editor.
+
+\subsection{Additional reasoning layers}
+
+Three additional packs are planned for v0.2 or v0.3, each independently
+motivated:
+
+\begin{itemize}
+\item \emph{Native Prolog behavior-tree executor.} Reactive execution of
+  task decompositions, with tick-based evaluation and standard BT control
+  flow (sequence, selector, parallel, decorator). No external runtime
+  dependency.
+\item \emph{Event Calculus layer (RTEC-inspired).} For temporal reasoning
+  beyond Allen intervals, particularly for recurrence and for reasoning
+  about what happened when; \texttt{pack-allen} answers ``what qualitative
+  relation holds'', the Event Calculus layer will answer ``what fluent
+  holds at time $t$''.
+\item \emph{s(CASP) plan justification.} For every scheduled plan, produce
+  a proof tree showing why each scheduling decision was forced; lets the
+  user audit the scheduler's reasoning step-by-step.
+\end{itemize}
+
+\subsection{Exports}
+
+\begin{itemize}
+\item \emph{CycL text emission.} Already sketched (see \S3.5); v0.2 will
+  finalize the emitter and add a round-trip test using a stable
+  \texttt{.cycl} corpus.
+\item \emph{RDF/Turtle export.} For federation with Koo5's work and for
+  compatibility with external knowledge-graph tooling.
+\item \emph{HTN SHOP-style meta-interpreter.} Task decomposition using the
+  SHOP HTN style, with SPSE4's \texttt{subsumes} edges as the
+  method-precondition source.
+\item \emph{planutils adapter.} A thin adapter for the \texttt{planutils}
+  polyglot-planner backend, so \texttt{emit\_pddl} $\to$ \texttt{planutils}
+  $\to$ parsed plan is a one-liner.
+\end{itemize}
+
+% ==========================================================================
+\section{Discussion}
+% ==========================================================================
+
+Three properties of the v0.1 delivery are worth highlighting explicitly.
+
+\textbf{Iteration discipline.} The session produced twelve tarballs
+(v0.1.0 $\to$ v0.1.12). Each tarball fixed exactly one bug, caught with
+one targeted diagnostic, with no structural overshoot. The bugs fell into
+categories that are well-documented SWI-Prolog gotchas---\texttt{assertz}
+copying attribute variables, \texttt{forall/2} undoing CLP(FD) bindings,
+choice-point warnings on tail-recursive helpers---and each fix was local.
+The root cause, in every case, was a subtle semantics mismatch between the
+programmer's model and the actual Prolog semantics; none of the bugs were
+design flaws. This is consistent with the ``tight feedback loop on real
+data'' methodology the FRDCSA project has consistently used.
+
+\textbf{Scope discipline.} v0.1 is aggressively scoped. Things
+deliberately deferred include: the collaboration server, the browser
+client, the Event Calculus layer, the s(CASP) justification layer, live
+Cyc integration, and the MySQL backend for \texttt{mt\_store}. Every
+deferral has a stated rationale. This is what allowed v0.1 to ship with
+79 green tests and an end-to-end working demo in a single session.
+
+\textbf{Dogfooding from day one.} The autopackager demo uses the author's
+actual packaging queue, not a toy. This matters for two reasons. First,
+it forces the user-visible ergonomics to be correct---there is no way to
+fake a realistic demo. Second, it means SPSE4 is a working tool for the
+author on the day of the v0.1 release, not a tool waiting for content to
+be useful. The FRDCSA project has consistently prioritized this kind of
+self-hosting (``the Free Life Planner must first plan its own
+development''), and SPSE4 v0.1 meets the bar.
+
+% ==========================================================================
+\section*{Acknowledgments}
+\addcontentsline{toc}{section}{Acknowledgments}
+% ==========================================================================
+
+SPSE4 builds on intellectual lineage from \citet{allen-1983} on
+interval algebra, \citet{guha-lenat-cyc-1990} on microtheories and
+context logic, the PDDL community
+\citep{fox-long-pddl21-2003,edelkamp-pddl22-2004}, and the SWI-Prolog
+core team \citep{wielemaker-swipl-2012}. The 2011 SPSE2 technical
+report provided the ontology. The v0.1 codebase was developed in a
+live pair-programming session between the author and Claude
+(Anthropic, Claude Opus 4.6 and 4.7) on April 22, 2026, with Claude
+producing the majority of the Prolog source and the author providing
+domain knowledge, architectural judgment, and test-failure
+diagnostics. The iteration pattern of ``paste the error, fix one
+thing, re-run'' proved remarkably effective across the twelve
+tarballs.
+
+% ==========================================================================
+\section*{License}
+\addcontentsline{toc}{section}{License}
+% ==========================================================================
+
+All five packs ship under the MIT License. The project is hosted on
+GitHub under the \texttt{aindilis} organization at
+\url{https://github.com/aindilis/} (repos \texttt{pack-allen},
+\texttt{pack-mt-store}, \texttt{pack-pddl}, \texttt{pack-spse4-core},
+\texttt{pack-spse4-scheduler}, and the \texttt{spse4} umbrella).
+
+\bibliographystyle{plainnat}
+\bibliography{spse4}
+\end{document}

@@ -1,0 +1,34 @@
+# SWI-Prolog
+*.qlf
+.swipl-history
+*.swicache/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+
+# OS / editor cruft
+.DS_Store
+*~
+\#*\#
+.\#*
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local environment
+.env
+.envrc
+*.local
+
+# Tarballs (these are release artifacts, not source)
+*.tar.gz
+*.tgz
