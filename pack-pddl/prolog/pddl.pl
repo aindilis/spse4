@@ -1,6 +1,6 @@
 /*  pack-pddl -- PDDL/HDDL parser, emitter, and planner-capability table.
 
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     A tokenizer-and-s-expression-based parser for the Planning Domain
     Definition Language (PDDL 1.2 / 2.1 / 2.2 / 3.0 core) and its

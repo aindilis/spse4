@@ -1,6 +1,6 @@
 /*  pack-allen -- Allen interval algebra for SWI-Prolog
 
-    Part of FRKCSA / SPSE4.  Distributed under the MIT License.
+    Part of FRKCSA / SPSE4.  Distributed under the GPLv3 License.
 
     This module implements Allen's interval algebra (Allen, 1983): the
     thirteen primitive binary relations between two time intervals,

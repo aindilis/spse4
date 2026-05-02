@@ -127,4 +127,4 @@ swipl -g "[t/spse4_core], run_tests" -t halt prolog/spse4_core.pl
 
 ## License
 
-MIT.
+GPLv3.

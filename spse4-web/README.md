@@ -81,4 +81,4 @@ in cytoscape 3.x.
 
 ## License
 
-MIT. See the top-level SPSE4 LICENSE.
+GPLv3. See the top-level SPSE4 LICENSE.

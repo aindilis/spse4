@@ -84,4 +84,4 @@ v0.1 — foundation usable.  Planned:
 
 ## License
 
-MIT.
+GPLv3.

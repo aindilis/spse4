@@ -1,6 +1,6 @@
 /*  pack-spse4-core -- SPSE4 task ontology and graph operations.
 
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     This module defines the core data model of the Shared Priority
     System Editor v4.  A "priority system" is a labelled directed

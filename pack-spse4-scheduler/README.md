@@ -109,4 +109,4 @@ swipl -g "[t/spse4_scheduler], run_tests" -t halt prolog/spse4_scheduler.pl
 
 ## License
 
-MIT.
+GPLv3.

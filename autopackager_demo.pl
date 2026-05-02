@@ -17,7 +17,7 @@
     This is the first end-to-end example of SPSE4 doing something
     useful with real FRDCSA data, not synthetic tests.
 
-    MIT License.
+    GPL License.
 */
 
 :- prolog_load_context(directory, Here),

@@ -5,7 +5,7 @@
     stops it.  The tests do NOT require the Pengines JS client --
     they validate the server's HTTP surface and ACL logic directly.
 
-    MIT License.  Part of FRKCSA / SPSE4.
+    GPLv3 License.  Part of FRKCSA / SPSE4.
 */
 
 :- begin_tests(spse4_server).

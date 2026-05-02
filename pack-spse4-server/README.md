@@ -4,7 +4,7 @@ HTTP and Pengines server for SPSE4 task graphs, with basic auth,
 per-microtheory access control, and live broadcast fanout of edit
 events.
 
-Part of [FRKCSA / SPSE4](https://github.com/aindilis/spse4). MIT License.
+Part of [FRKCSA / SPSE4](https://github.com/aindilis/spse4). GPLv3 License.
 
 ## What it does
 
@@ -105,4 +105,4 @@ random high port in the 14040–14060 range.
 
 ## License
 
-MIT. See the top-level SPSE4 LICENSE.
+GPLv3. See the top-level SPSE4 LICENSE.

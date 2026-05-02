@@ -1,5 +1,5 @@
 /*  SPSE4 web client — single-page app.
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     Architecture:
       - API module: talks to /health, /projection, /events

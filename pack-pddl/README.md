@@ -119,4 +119,4 @@ swipl -g "[t/pddl], run_tests" -t halt prolog/pddl.pl
 
 ## License
 
-MIT.
+GPLv3.

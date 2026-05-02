@@ -1,6 +1,6 @@
 /*  pack-spse4-scheduler -- Real-datetime scheduling + reactive triggers.
 
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     This module extends =pack-allen='s integer-timeline CLP(FD)
     scheduler to real calendar time, provides deadline propagation and

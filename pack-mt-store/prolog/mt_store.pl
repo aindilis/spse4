@@ -1,6 +1,6 @@
 /*  pack-mt-store -- Microtheory store with pluggable backend.
 
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     Implements a Guha-style microtheory (context) layer for SWI-Prolog
     knowledge.  Each microtheory is a named container for facts and

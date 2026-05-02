@@ -63,4 +63,4 @@ swipl -g "[t/allen], run_tests" -t halt prolog/allen.pl
 
 ## License
 
-MIT.
+GPLv3.

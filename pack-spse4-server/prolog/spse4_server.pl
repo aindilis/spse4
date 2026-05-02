@@ -1,6 +1,6 @@
 /*  pack-spse4-server -- HTTP + Pengines + broadcast fanout + per-mt ACL.
 
-    Part of FRKCSA / SPSE4.  MIT License.
+    Part of FRKCSA / SPSE4.  GPLv3 License.
 
     This pack exposes pack-spse4-core's task graph over HTTP and
     Pengines, with three capabilities that v0.1 did not have:
