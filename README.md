@@ -45,7 +45,7 @@ See `CHANGES.md` for the per-tarball changelog.
   Pengines + WebSocket bus.
 
 The system is designed for use as the planning layer of the
-[Free Life Planner (FLP)](https://frdcsa.org/), and equally as a
+[Free Life Planner (FLP)](https://freelifeplanner.org/doc), and equally as a
 general-purpose planning-domain editor for AI-planning research.
 
 ---
