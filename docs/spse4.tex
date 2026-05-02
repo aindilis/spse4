@@ -587,7 +587,7 @@ server-authoritative fanout the v0.2 collaboration layer will need (see
 The demo at \texttt{autopackager\_demo.pl} seeds SPSE4 with eleven tasks
 drawn from the FRDCSA autopackager's actual priority queue---package
 \texttt{eprover}, \texttt{peleus}, \texttt{vampire}, \texttt{acl2},
-\texttt{freekbs2}, submit to mentors, prepare the FLP public release, and
+\texttt{freekbs2}, submit to frkcsa\_repos, prepare the FLP public release, and
 several intermediate milestones. It then exercises every major SPSE4
 capability on real data.
 
@@ -624,14 +624,14 @@ asserted durations and earliest\_starts. For the tasks with declared start
 dates (\texttt{pkg\_vampire} at April 22, 2026), the scheduler places them
 on their declared dates; for tasks without declared starts, it schedules
 them starting from ``today'' (the demo's run date). Dependencies are
-honored: \texttt{submit\_autopkg\_to\_mentors} is placed after
+honored: \texttt{submit\_autopkg\_to\_frkcsa\_repos} is placed after
 \texttt{pkg\_vampire} completes.
 
 Representative output (edited for brevity):
 
 \begin{lstlisting}
 pkg_vampire        : 2026-04-22 -> 2026-04-25  (3 days)
-submit_mentors     : 2026-04-25 -> 2026-04-26  (1 day, waits on vampire)
+submit_frkcsa\_repos     : 2026-04-25 -> 2026-04-26  (1 day, waits on vampire)
 pkg_acl2           : 2026-04-22 -> 2026-04-24
 pkg_freekbs2       : 2026-04-22 -> 2026-04-23
 pkg_flp_release    : 2026-05-04 -> 2026-05-04  (milestone)
@@ -639,7 +639,7 @@ pkg_flp_release    : 2026-05-04 -> 2026-05-04  (milestone)
 
 \subsection{Readiness gate with blocker identification}
 
-A gate check on \texttt{submit\_autopkg\_to\_mentors} reports:
+A gate check on \texttt{submit\_autopkg\_to\_frkcsa\_repos} reports:
 
 \begin{lstlisting}
   pkg_eprover: completed
@@ -656,7 +656,7 @@ act on the gate failure.
 \subsection{Reactive trigger demonstration}
 
 Finally the demo registers a reactive trigger: ``when
-\texttt{submit\_autopkg\_to\_mentors} becomes ready, announce so.'' The
+\texttt{submit\_autopkg\_to\_frkcsa\_repos} becomes ready, announce so.'' The
 trigger registers silently. The demo then simulates \texttt{pkg\_vampire}
 completing (by updating its status to \texttt{completed} and calling
 \texttt{trigger\_ready\_tasks/1}), and the trigger fires automatically

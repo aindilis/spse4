@@ -9,7 +9,7 @@
       - Declares the packages already completed or in flight
       - Declares dependencies (e.g. peleus needs eprover for ATP-backed
         plan verification)
-      - Sets deadlines (e.g. Debian mentors submission target)
+      - Sets deadlines (e.g. FRKCSA package repositories submission target)
       - Runs schedule_tasks/3 and critical_path/3
       - Shows task_ready/2 ordering
       - Demonstrates a reactive trigger
@@ -39,7 +39,7 @@
 %
 % This captures the packaging work state as of late Q1 2026.  Dates
 % are illustrative but based on the real pattern (multiple packages
-% completed, Debian mentors submission upcoming).
+% completed, FRKCSA package repositories submission upcoming).
 
 seed_autopackager :-
     mt_create(autopackager,
@@ -102,8 +102,8 @@ seed_autopackager :-
                   notes = "FRDCSA-internal; needed before public FLP release" ]),
 
     % ---- downstream goals ----
-    task_create(autopackager, submit_autopkg_to_mentors,
-                [ has_nl = "Submit autopackager itself to Debian mentors",
+    task_create(autopackager, submit_autopkg_to_frkcsa_repos,
+                [ has_nl = "Submit autopackager itself to FRKCSA package repositories",
                   task_kind = primitive,
                   status = open,
                   duration = days(2),
@@ -117,13 +117,13 @@ seed_autopackager :-
 
     % ---- dependency edges ----
     % vampire depends on nothing yet (standalone build)
-    % submit_autopkg_to_mentors needs at least some real packages working
-    edge_assert(autopackager, submit_autopkg_to_mentors, depends, pkg_eprover, []),
-    edge_assert(autopackager, submit_autopkg_to_mentors, depends, pkg_peleus, []),
-    edge_assert(autopackager, submit_autopkg_to_mentors, depends, pkg_vampire, []),
+    % submit_autopkg_to_frkcsa_repos needs at least some real packages working
+    edge_assert(autopackager, submit_autopkg_to_frkcsa_repos, depends, pkg_eprover, []),
+    edge_assert(autopackager, submit_autopkg_to_frkcsa_repos, depends, pkg_peleus, []),
+    edge_assert(autopackager, submit_autopkg_to_frkcsa_repos, depends, pkg_vampire, []),
 
     % Public FLP needs all the ATPs, KBS, and autopackager itself cleared
-    edge_assert(autopackager, release_flp_public, depends, submit_autopkg_to_mentors, []),
+    edge_assert(autopackager, release_flp_public, depends, submit_autopkg_to_frkcsa_repos, []),
     edge_assert(autopackager, release_flp_public, depends, pkg_acl2, []),
     edge_assert(autopackager, release_flp_public, depends, pkg_freekbs2, []),
     edge_assert(autopackager, release_flp_public, depends, pkg_vampire, []).
@@ -179,10 +179,10 @@ safe_dt_(E, S) :-
            Err,
            format(string(S), "ERR(~w: ~w)", [E, Err]) ).
 
-report_mentors_readiness :-
-    format("~n=== Gate: Ready to submit to Debian mentors? ===~n"),
+report_frkcsa_repos_readiness :-
+    format("~n=== Gate: Ready to submit to FRKCSA package repositories? ===~n"),
     findall(Dep - Status,
-            ( depends(autopackager, submit_autopkg_to_mentors, Dep),
+            ( depends(autopackager, submit_autopkg_to_frkcsa_repos, Dep),
               (   task_property(autopackager, Dep, status, Status)
               ->  true ; Status = open ) ),
             Report),
@@ -201,8 +201,8 @@ is_blocker_(_ - Status) :- Status \== completed.
 
 demonstrate_reactive :-
     format("~n=== Reactive trigger demo ===~n"),
-    format("Registering handler: when submit_autopkg_to_mentors is ready, say so.~n"),
-    on_dependencies_complete(autopackager, submit_autopkg_to_mentors,
+    format("Registering handler: when submit_autopkg_to_frkcsa_repos is ready, say so.~n"),
+    on_dependencies_complete(autopackager, submit_autopkg_to_frkcsa_repos,
         format("  *** AUTOMATIC: all prereqs complete, time to submit! ***~n")),
     format("Current vampire status: in_progress (not fired yet).~n"),
     format("Simulating vampire completion:~n"),
@@ -221,7 +221,7 @@ main :-
     report_ready,
     report_critical_path,
     report_schedule,
-    report_mentors_readiness,
+    report_frkcsa_repos_readiness,
     demonstrate_reactive,
     format("~n==== End of demo ====~n"),
     halt(0).

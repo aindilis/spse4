@@ -13,8 +13,7 @@ Database: Cluster, Study and Apply) project.
 ![SPSE4 rendering the autopackager task graph in Cytoscape.js, with the critical path highlighted in purple](docs/spse4-screenshot.png)
 
 *v0.1.29 — the SPSE4 web client rendering the FRDCSA Autopackager task queue
-as a directed graph, with the critical path to "submit autopackager to Debian
-mentors" highlighted.*
+as a directed graph, with the critical path to "submit autopackager to FRKCSA project repos" highlighted.*
 
 ---
 
@@ -127,8 +126,7 @@ swipl pack-spse4-server/examples/server_demo.pl
 ```
 
 Then open <http://localhost:4040/> in a browser. You should see the task
-graph rendered, with the critical path to "submit autopackager to Debian
-mentors" highlighted.
+graph rendered, with the critical path to "submit autopackager to FRKCSA project repos" highlighted.
 
 ---
 

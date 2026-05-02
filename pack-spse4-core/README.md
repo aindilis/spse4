@@ -50,12 +50,12 @@ demo :-
                   task_kind = primitive,
                   overlap_class = foregroundable,
                   status = completed ]),
-    task_create(autopackager, submit_to_mentors,
-                [ has_nl = "Submit vampire to Debian mentors",
+    task_create(autopackager, submit_to_frkcsa_repos,
+                [ has_nl = "Submit vampire to FRKCSA package repositories",
                   task_kind = primitive,
                   status = open ]),
 
-    edge_assert(autopackager, submit_to_mentors, depends, pkg_vampire, []),
+    edge_assert(autopackager, submit_to_frkcsa_repos, depends, pkg_vampire, []),
 
     task_ready(autopackager, Ready),
     format("Ready tasks: ~w~n", [Ready]).

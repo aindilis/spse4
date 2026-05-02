@@ -167,8 +167,8 @@ seed_autopackager_queue_ :-
         [ has_nl="Package FreeKBS2",
           status=open,
           duration=fixed(172800) ]),  % 2 days
-    spse4_core:task_create(Mt, submit_autopkg_to_mentors,
-        [ has_nl="Submit autopackager batch to Debian mentors",
+    spse4_core:task_create(Mt, submit_autopkg_to_frkcsa_repos,
+        [ has_nl="Submit autopackager batch to FRKCSA package repositories",
           status=open,
           duration=fixed(86400) ]),   % 1 day
     spse4_core:task_create(Mt, flp_release,
@@ -178,11 +178,11 @@ seed_autopackager_queue_ :-
           duration=fixed(172800) ]),  % 2 days
 
     % Dependencies (arg order is From, Kind, To).
-    spse4_core:edge_assert(Mt, submit_autopkg_to_mentors, depends, pkg_eprover,  []),
-    spse4_core:edge_assert(Mt, submit_autopkg_to_mentors, depends, pkg_peleus,   []),
-    spse4_core:edge_assert(Mt, submit_autopkg_to_mentors, depends, pkg_vampire,  []),
-    spse4_core:edge_assert(Mt, submit_autopkg_to_mentors, depends, pkg_acl2,     []),
-    spse4_core:edge_assert(Mt, submit_autopkg_to_mentors, depends, pkg_freekbs2, []),
-    spse4_core:edge_assert(Mt, flp_release, depends, submit_autopkg_to_mentors, []),
+    spse4_core:edge_assert(Mt, submit_autopkg_to_frkcsa_repos, depends, pkg_eprover,  []),
+    spse4_core:edge_assert(Mt, submit_autopkg_to_frkcsa_repos, depends, pkg_peleus,   []),
+    spse4_core:edge_assert(Mt, submit_autopkg_to_frkcsa_repos, depends, pkg_vampire,  []),
+    spse4_core:edge_assert(Mt, submit_autopkg_to_frkcsa_repos, depends, pkg_acl2,     []),
+    spse4_core:edge_assert(Mt, submit_autopkg_to_frkcsa_repos, depends, pkg_freekbs2, []),
+    spse4_core:edge_assert(Mt, flp_release, depends, submit_autopkg_to_frkcsa_repos, []),
 
     format("Seeded ~w with autopackager queue~n", [Mt]).
