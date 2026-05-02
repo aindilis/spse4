@@ -110,7 +110,7 @@ swipl -g "pack_install('pack-spse4-server',   [interactive(false)])" -t halt
 ```sh
 git clone https://github.com/aindilis/spse4.git
 cd spse4
-./run_all_tests.pl   # should report 79 tests passing
+swipl -s ./run_all_tests.pl   # should report 79 tests passing
 ```
 
 ---
