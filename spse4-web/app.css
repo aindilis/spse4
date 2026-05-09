@@ -676,3 +676,201 @@ html, body {
   border-radius: 4px;
 }
 .detail::-webkit-scrollbar-thumb:hover { background: var(--bd-1); }
+
+/* ---------- New-task toolbar button ---------- */
+
+#new-task-btn {
+  padding: 4px 10px;
+  margin-left: 6px;
+  background: var(--bg-1);
+  color: var(--fg-0);
+  border: 1px solid var(--bd-0);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 500;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+#new-task-btn:hover {
+  background: var(--bg-2);
+  border-color: var(--bd-1);
+}
+
+/* ---------- Danger variant of action buttons ---------- */
+
+.act-danger {
+  color: var(--s-cancelled-fg) !important;
+  border-color: var(--s-cancelled-br) !important;
+  margin-top: 8px;
+}
+
+.act-danger:hover {
+  background: var(--s-cancelled-bg) !important;
+  border-color: var(--s-cancelled-br) !important;
+}
+
+/* ---------- Modal ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 28, 26, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: backdrop-in 0.12s ease-out;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-1);
+  border: 1px solid var(--bd-1);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: modal-in 0.14s ease-out;
+}
+
+@keyframes modal-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bd-0);
+  background: var(--bg-2);
+}
+
+.modal-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--fg-0);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--fg-1);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-md);
+  line-height: 1;
+}
+
+.modal-close:hover { background: var(--bd-0); color: var(--fg-0); }
+
+.modal-body {
+  padding: 16px;
+}
+
+.form-row {
+  margin-bottom: 14px;
+}
+
+.form-row:last-child { margin-bottom: 0; }
+
+.form-row label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.form-row input[type="text"],
+.form-row select {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  border: 1px solid var(--bd-0);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.form-row input[type="text"]:focus,
+.form-row select:focus {
+  outline: none;
+  border-color: var(--bd-2);
+  background: var(--bg-1);
+}
+
+.form-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--fg-2);
+  margin-top: 4px;
+}
+
+.form-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--s-cancelled-bg);
+  color: var(--s-cancelled-fg);
+  border: 1px solid var(--s-cancelled-br);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--bd-0);
+  background: var(--bg-2);
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--bd-0);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.btn-primary {
+  background: var(--fg-0);
+  color: var(--bg-1);
+  border-color: var(--fg-0);
+}
+
+.btn-primary:hover { background: var(--fg-1); border-color: var(--fg-1); }
+.btn-primary:disabled {
+  background: var(--fg-2);
+  border-color: var(--fg-2);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-1);
+  color: var(--fg-0);
+}
+
+.btn-secondary:hover { background: var(--bg-2); border-color: var(--bd-1); }

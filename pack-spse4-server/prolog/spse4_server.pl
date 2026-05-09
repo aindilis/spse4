@@ -321,6 +321,10 @@ acl_allows_([_|R], Mode, Mt) :- acl_allows_(R, Mode, Mt).
                 [ method(get) ]).
 :- http_handler(root('events'),    events_handler,
                 [ method(get) ]).
+:- http_handler(root('tasks'),     tasks_post_handler,
+                [ method(post) ]).
+:- http_handler(root(tasks),       tasks_delete_handler,
+                [ method(delete), prefix ]).
 
 % Static file handler, installed lazily on start if a client_dir was
 % given.  We don't install it at file load time because the path may
@@ -357,9 +361,11 @@ root_api_landing_(_Request) :-
     format("SPSE4 server~n"),
     format("~n"),
     format("Available endpoints:~n"),
-    format("  GET /health~n"),
-    format("  GET /projection?mt=<mt>[&status=<s>][&relation=<r>][&critical_path=1][&goal=<id>]~n"),
-    format("  GET /events[?since=<epoch>]~n"),
+    format("  GET    /health~n"),
+    format("  GET    /projection?mt=<mt>[&status=<s>][&relation=<r>][&critical_path=1][&goal=<id>]~n"),
+    format("  GET    /events[?since=<epoch>]~n"),
+    format("  POST   /tasks         body: {mt, id, label, status[, props]}  (auth required)~n"),
+    format("  DELETE /tasks/<mt>/<id>                                        (auth required)~n"),
     format("~n"),
     format("No web client is configured on this server.  To enable~n"),
     format("the Cytoscape UI, start with client_dir(Dir) option:~n"),
@@ -374,7 +380,7 @@ health_handler(_Request) :-
     findall(P, server_port_(P), Ports),
     aggregate_all(count, user_record_(_, _, _), NUsers),
     reply_json_dict(_{ status: ok,
-                       version: "0.1.0",
+                       version: "0.2.0",
                        ports: Ports,
                        users: NUsers
                      }).
@@ -675,6 +681,134 @@ trim_recent_events_ :-
     ).
 
 % ---------------------------------------------------------------
+%   /tasks: REST mutation endpoints (added v0.2.0)
+% ---------------------------------------------------------------
+%
+%   POST /tasks
+%     body: { "mt": "<atom>", "id": "<atom>",
+%             "label": "<string>", "status": "<atom>",
+%             "props": { ... }     // optional extra Key:Value pairs
+%           }
+%     201 Created   on success, body { ok: true, mt, id }
+%     400 Bad Request   if body malformed
+%     401 Unauthorized  if no auth and write requires it
+%     403 Forbidden     if user lacks write on Mt
+%
+%   DELETE /tasks/<mt>/<id>
+%     204 No Content    on success
+%     401, 403          as above
+%     404 Not Found     if task does not exist
+%
+%   Both endpoints fire pack-spse4-core broadcast events as a
+%   side-effect, so the relay propagates to live pengines and the
+%   /events poll endpoint sees them on the next call.
+
+tasks_post_handler(Request) :-
+    http_authenticate_optional_(Request, User),
+    catch( http_read_json_dict(Request, Body, []),
+           _,
+           ( reply_json_dict(_{ error: bad_request,
+                                message: "request body must be JSON" },
+                             [status(400)]),
+             fail ) ),
+    !,
+    (   _{ mt: MtAtomic, id: IdAtomic, label: Label, status: StatusAtomic } :< Body
+    ->  to_atom_(MtAtomic, Mt),
+        to_atom_(IdAtomic, Id),
+        to_atom_(StatusAtomic, Status),
+        to_string_(Label, LabelS),
+        extra_props_from_body_(Body, ExtraProps),
+        (   User == ''
+        ->  reply_json_dict(_{ error: unauthorized,
+                               message: "authentication required to add tasks" },
+                            [status(401)])
+        ;   spse4_acl_allows(User, write, Mt)
+        ->  Props0 = [has_nl=LabelS, status=Status | ExtraProps],
+            catch( spse4_core:task_create(Mt, Id, Props0),
+                   E,
+                   ( format(atom(Msg), "create failed: ~q", [E]),
+                     reply_json_dict(_{ error: bad_request, message: Msg },
+                                     [status(400)]),
+                     fail ) ),
+            !,
+            reply_json_dict(_{ ok: true, mt: Mt, id: Id },
+                            [status(201)])
+        ;   reply_forbidden_(User, write, Mt)
+        )
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "missing required fields: mt, id, label, status" },
+                        [status(400)])
+    ).
+tasks_post_handler(_Request).
+
+tasks_delete_handler(Request) :-
+    http_authenticate_optional_(Request, User),
+    memberchk(path_info(PathInfo), Request),
+    parse_task_path_(PathInfo, Mt, Id),
+    !,
+    (   User == ''
+    ->  reply_json_dict(_{ error: unauthorized,
+                           message: "authentication required to delete tasks" },
+                        [status(401)])
+    ;   spse4_acl_allows(User, write, Mt)
+    ->  (   spse4_core:task_exists(Mt, Id)
+        ->  catch( spse4_core:task_retract(Mt, Id),
+                   E,
+                   ( format(atom(Msg), "delete failed: ~q", [E]),
+                     reply_json_dict(_{ error: bad_request, message: Msg },
+                                     [status(400)]),
+                     fail ) ),
+            !,
+            reply_json_dict(_{ ok: true, mt: Mt, id: Id })
+        ;   format(atom(M), "task ~w not found in mt ~w", [Id, Mt]),
+              reply_json_dict(_{ error: not_found, message: M },
+                              [status(404)])
+        )
+    ;   reply_forbidden_(User, write, Mt)
+    ).
+tasks_delete_handler(_Request) :-
+    reply_json_dict(_{ error: bad_request,
+                       message: "expected DELETE /tasks/<mt>/<id>" },
+                    [status(400)]).
+
+%   parse_task_path_(+PathInfo, -Mt, -Id) is semidet.
+%
+%   The path_info from a `/tasks` prefix handler is the suffix after
+%   "/tasks", e.g. "autopackager/eprover_pkg" or "/autopackager/eprover_pkg".
+%   Strip the leading slash if present, split on "/", expect exactly two
+%   non-empty segments.
+parse_task_path_(PathInfo, Mt, Id) :-
+    ( atom(PathInfo) -> Atom = PathInfo ; atom_string(Atom, PathInfo) ),
+    atom_codes(Atom, Codes0),
+    (   Codes0 = [0'/ | Rest] -> Codes = Rest ; Codes = Codes0 ),
+    atom_codes(Stripped, Codes),
+    atomic_list_concat(Parts, '/', Stripped),
+    Parts = [MtAtom, IdAtom],
+    MtAtom \== '',
+    IdAtom \== '',
+    Mt = MtAtom,
+    Id = IdAtom.
+
+%   extra_props_from_body_(+Body, -PropList) is det.
+%
+%   If the body has a `props` key whose value is a dict, return a list
+%   of Key=Value pairs.  Skip any keys that would clash with the
+%   reserved `has_nl` / `status` properties (those are set explicitly
+%   from the top-level fields).
+extra_props_from_body_(Body, Props) :-
+    (   get_dict(props, Body, ExtraDict),
+        is_dict(ExtraDict)
+    ->  dict_pairs(ExtraDict, _, Pairs),
+        findall(K=V,
+                ( member(K0-V0, Pairs),
+                  K0 \== has_nl, K0 \== status,
+                  K = K0, V = V0
+                ),
+                Props)
+    ;   Props = []
+    ).
+
+% ---------------------------------------------------------------
 %   Pengines application
 % ---------------------------------------------------------------
 
@@ -835,9 +969,9 @@ relay_broadcast_(Event) :-
            ;   true
            )).
 
-event_mt_(task_added(Mt,_,_,_,_), Mt) :- !.
+event_mt_(task_added(Mt,_,_), Mt) :- !.
 event_mt_(task_removed(Mt,_), Mt) :- !.
-event_mt_(task_status(Mt,_,_,_), Mt) :- !.
+event_mt_(task_property_changed(Mt,_,_,_), Mt) :- !.
 event_mt_(edge_added(Mt,_,_,_,_), Mt) :- !.
 event_mt_(edge_removed(Mt,_,_,_), Mt) :- !.
 event_mt_(_, '') :- !.            % unknown event: global (anon scope)

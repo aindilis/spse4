@@ -1,5 +1,5 @@
 name(spse4_core).
-version('0.1.0').
+version('0.2.0').
 title('SPSE4 core: shared priority system editor - task ontology and graph operations').
 keywords([planning, tasks, priority, pddl, temporal, htn, frdcsa, frkcsa]).
 author('Andrew Dougherty', 'adougher9@yahoo.com').

@@ -66,6 +66,51 @@
       const qs = since > 0 ? `?since=${since}` : '';
       return this.get('/events' + qs);
     },
+
+    async createTask({ mt, id, label, status, props }) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const body = { mt, id, label, status };
+      if (props && Object.keys(props).length > 0) body.props = props;
+      const res = await fetch(State.baseUrl + '/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
+
+    async deleteTask(mt, id) {
+      const headers = {};
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const url = `${State.baseUrl}/tasks/${encodeURIComponent(mt)}/${encodeURIComponent(id)}`;
+      const res = await fetch(url, { method: 'DELETE', headers });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
   };
 
   // ============================================================
@@ -580,9 +625,31 @@
           State.goalId = State.selectedId;
           updateGoalChip();
           refresh();
+        } else if (act === 'delete' && State.selectedId) {
+          deleteSelectedTask();
         }
       };
     });
+  }
+
+  // ============================================================
+  // Mutation: delete the currently-selected task
+  // ============================================================
+
+  async function deleteSelectedTask() {
+    const id = State.selectedId;
+    if (!id) return;
+    if (!confirm(`Delete task "${id}"?\n\nThis also removes all edges incident to it. Cannot be undone.`)) {
+      return;
+    }
+    try {
+      await API.deleteTask(State.mt, id);
+      State.selectedId = null;
+      await refresh();
+      renderPanel();
+    } catch (e) {
+      alert(`Delete failed: ${e.message || e}`);
+    }
   }
 
   function updateGoalChip() {
@@ -695,6 +762,108 @@
   }
 
   // ============================================================
+  // New-task modal
+  // ============================================================
+
+  const NewTaskModal = {
+    isOpen() {
+      const bd = document.getElementById('modal-backdrop');
+      return bd && bd.style.display !== 'none';
+    },
+
+    open() {
+      const bd = document.getElementById('modal-backdrop');
+      if (!bd) return;
+      // Prefill microtheory with current state
+      document.getElementById('f-mt').value = State.mt;
+      document.getElementById('f-id').value = '';
+      document.getElementById('f-label').value = '';
+      document.getElementById('f-status').value = 'open';
+      const err = document.getElementById('f-error');
+      err.style.display = 'none';
+      err.textContent = '';
+      bd.style.display = 'flex';
+      // Focus the ID field after the animation begins
+      setTimeout(() => document.getElementById('f-id').focus(), 50);
+    },
+
+    close() {
+      const bd = document.getElementById('modal-backdrop');
+      if (bd) bd.style.display = 'none';
+    },
+
+    showError(msg) {
+      const err = document.getElementById('f-error');
+      err.textContent = msg;
+      err.style.display = 'block';
+    },
+
+    validate() {
+      const id = document.getElementById('f-id').value.trim();
+      const label = document.getElementById('f-label').value.trim();
+      const mt = document.getElementById('f-mt').value.trim();
+      const status = document.getElementById('f-status').value;
+
+      if (!id) return { ok: false, msg: 'ID is required.' };
+      if (!/^[a-z][a-z0-9_]*$/.test(id)) {
+        return { ok: false, msg: 'ID must start with a lowercase letter and contain only lowercase letters, digits, and underscores.' };
+      }
+      if (!label) return { ok: false, msg: 'Label is required.' };
+      if (!mt) return { ok: false, msg: 'Microtheory is required.' };
+
+      return { ok: true, payload: { id, label, mt, status } };
+    },
+
+    async submit() {
+      const v = this.validate();
+      if (!v.ok) { this.showError(v.msg); return; }
+
+      const submitBtn = document.getElementById('modal-submit');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Adding…';
+
+      try {
+        await API.createTask(v.payload);
+        this.close();
+        // The newly created task lives in the just-named mt; switch to
+        // it if the form's mt differs from the current view, so the
+        // user actually sees what they just added.
+        if (v.payload.mt !== State.mt) {
+          State.mt = v.payload.mt;
+          const sel = document.getElementById('mt-select');
+          if (sel && sel.value !== State.mt) {
+            // Add the option dynamically if it isn't there yet
+            if (!Array.from(sel.options).some(o => o.value === State.mt)) {
+              const opt = document.createElement('option');
+              opt.value = State.mt;
+              opt.textContent = State.mt;
+              sel.appendChild(opt);
+            }
+            sel.value = State.mt;
+          }
+        }
+        await refresh();
+        // Select the new task so the user immediately sees it in the panel
+        State.selectedId = v.payload.id;
+        renderPanel();
+        const target = cy.getElementById(v.payload.id);
+        if (target.length) {
+          cy.animate({ center: { eles: target }, zoom: 1.3, duration: 220 });
+          target.select();
+        }
+      } catch (e) {
+        let msg = e.message || String(e);
+        if (e.status === 401) msg = 'Authentication required. Pass ?u=USER&p=PASS in the URL.';
+        else if (e.status === 403) msg = `Forbidden: you don't have write access to "${v.payload.mt}".`;
+        this.showError(msg);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add task';
+      }
+    },
+  };
+
+  // ============================================================
   // Wire up
   // ============================================================
 
@@ -720,10 +889,45 @@
       refresh();
     });
 
+    // New-task modal triggers
+    document.getElementById('new-task-btn').addEventListener('click', () => {
+      NewTaskModal.open();
+    });
+    document.getElementById('modal-close').addEventListener('click', () => {
+      NewTaskModal.close();
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => {
+      NewTaskModal.close();
+    });
+    document.getElementById('modal-submit').addEventListener('click', () => {
+      NewTaskModal.submit();
+    });
+    // Click on backdrop (but not on the modal itself) closes
+    document.getElementById('modal-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'modal-backdrop') NewTaskModal.close();
+    });
+    // Enter inside form fields submits, Escape closes
+    ['f-id', 'f-label', 'f-mt', 'f-status'].forEach(fid => {
+      const el = document.getElementById(fid);
+      if (!el) return;
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); NewTaskModal.submit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); NewTaskModal.close(); }
+      });
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      // If the modal is open, only handle Escape; let the form take everything else.
+      if (NewTaskModal.isOpen()) {
+        if (e.key === 'Escape') {
+          NewTaskModal.close();
+        }
+        return;
+      }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       if (e.key === 'r') refresh();
+      else if (e.key === 'n') { e.preventDefault(); NewTaskModal.open(); }
       else if (e.key === 'Escape') {
         State.selectedId = null;
         State.goalId = null;

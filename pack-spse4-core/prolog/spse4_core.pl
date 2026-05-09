@@ -66,6 +66,7 @@
 :- use_module(library(apply)).
 :- use_module(library(pairs)).
 :- use_module(library(mt_store)).
+:- use_module(library(broadcast)).
 
 /** <module> SPSE4 core task ontology
 
@@ -161,7 +162,8 @@ task_create(Mt, TaskId, Props) :-
     must_be(list, Props),
     (   mt_exists(Mt) -> true ; existence_error(microtheory, Mt) ),
     mt_assert(Mt, task(TaskId)),
-    forall(member(P, Props), assert_property_(Mt, TaskId, P)).
+    forall(member(P, Props), assert_property_(Mt, TaskId, P)),
+    broadcast(spse4(task_added(Mt, TaskId, Props))).
 
 assert_property_(Mt, TaskId, Key=Value) :- !,
     validate_property_(Key, Value),
@@ -189,17 +191,17 @@ validate_property_(_, _).  % any other key is permitted without schema
 task_retract(Mt, TaskId) :-
     must_be(atom, Mt),
     must_be(atom, TaskId),
+    % Capture incident edges first so we can broadcast their removal.
+    findall(edge(TaskId, K, To),  ist(Mt, edge(TaskId, K, To)),  OutEdges),
+    findall(edge(From, K, TaskId), ist(Mt, edge(From, K, TaskId)), InEdges),
     mt_retract(Mt, task(TaskId)),
     forall(ist(Mt, task_property(TaskId, K, V)),
            mt_retract(Mt, task_property(TaskId, K, V))),
-    forall(ist(Mt, edge(TaskId, K, To)),
-           mt_retract(Mt, edge(TaskId, K, To))),
-    forall(ist(Mt, edge(From, K, TaskId)),
-           mt_retract(Mt, edge(From, K, TaskId))),
-    forall(ist(Mt, edge_property(TaskId, _, _, _, _)),
-           true),
-    forall(ist(Mt, edge_property(_, _, TaskId, _, _)),
-           true).
+    forall(member(edge(TaskId, K, To), OutEdges),
+           edge_retract(Mt, TaskId, K, To)),
+    forall(member(edge(From, K, TaskId), InEdges),
+           edge_retract(Mt, From, K, TaskId)),
+    broadcast(spse4(task_removed(Mt, TaskId))).
 
 %%  task_exists(+Mt, +TaskId) is semidet.
 task_exists(Mt, TaskId) :-
@@ -223,7 +225,8 @@ task_set_property(Mt, TaskId, Key, Value) :-
     validate_property_(Key, Value),
     forall(ist(Mt, task_property(TaskId, Key, V0)),
            mt_retract(Mt, task_property(TaskId, Key, V0))),
-    mt_assert(Mt, task_property(TaskId, Key, Value)).
+    mt_assert(Mt, task_property(TaskId, Key, Value)),
+    broadcast(spse4(task_property_changed(Mt, TaskId, Key, Value))).
 
 % ---------------------------------------------------------------------
 % Edges
@@ -247,16 +250,26 @@ edge_assert(Mt, From, Kind, To, Props) :-
     (   valid_edge_kind(Kind) -> true
     ;   domain_error(edge_kind, Kind)
     ),
-    (   ist(Mt, edge(From, Kind, To)) -> true
-    ;   mt_assert(Mt, edge(From, Kind, To))
+    (   ist(Mt, edge(From, Kind, To))
+    ->  IsNew = false
+    ;   mt_assert(Mt, edge(From, Kind, To)),
+        IsNew = true
     ),
-    forall(member(K=V, Props), mt_assert(Mt, edge_property(From, Kind, To, K, V))).
+    forall(member(K=V, Props), mt_assert(Mt, edge_property(From, Kind, To, K, V))),
+    (   IsNew == true
+    ->  broadcast(spse4(edge_added(Mt, From, Kind, To, Props)))
+    ;   true
+    ).
 
 %%  edge_retract(+Mt, +From, +Kind, +To) is det.
 edge_retract(Mt, From, Kind, To) :-
-    mt_retract(Mt, edge(From, Kind, To)),
-    forall(ist(Mt, edge_property(From, Kind, To, K, V)),
-           mt_retract(Mt, edge_property(From, Kind, To, K, V))).
+    (   ist(Mt, edge(From, Kind, To))
+    ->  mt_retract(Mt, edge(From, Kind, To)),
+        forall(ist(Mt, edge_property(From, Kind, To, K, V)),
+               mt_retract(Mt, edge_property(From, Kind, To, K, V))),
+        broadcast(spse4(edge_removed(Mt, From, Kind, To)))
+    ;   true
+    ).
 
 %%  edge(?Mt, ?From, ?Kind, ?To) is nondet.
 edge(Mt, From, Kind, To) :-

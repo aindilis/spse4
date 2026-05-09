@@ -23,10 +23,17 @@ as a directed graph, with the critical path to "submit autopackager to FRKCSA pr
 - **v0.1.29**: server trio first leg shipped. `pack-spse4-server` (Pengines +
   WebSocket transport + basic auth + per-microtheory ACL) and `spse4-web`
   (Cytoscape.js client) both functional.
-- **v0.2 in flight**: `spse4-mode.el` (Emacs mode using `pengine.el`),
-  expanded `spse4-web` editing affordances, multi-instance broadcast demo.
+- **v0.2.0**: collaboration layer end-to-end. Add/delete task UI in
+  `spse4-web`, REST mutation endpoints (`POST /tasks`,
+  `DELETE /tasks/<mt>/<id>`), and broadcast wiring in `pack-spse4-core` so
+  a task created in one browser tab appears in another within one poll
+  cycle. Adds 15 new PlUnit tests. Also fixes a latent v0.1 bug in
+  `task_retract/2`'s edge-property cleanup.
+- **v0.2.x in flight**: WebSocket push (replacing the 3-second poll),
+  `spse4-mode.el` Emacs mode using `pengine.el`, multi-instance
+  broadcast demo recording.
 
-See `CHANGES.md` for the per-tarball changelog.
+See `CHANGES.md` for the per-version changelog.
 
 ---
 

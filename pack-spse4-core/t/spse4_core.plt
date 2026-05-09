@@ -111,4 +111,111 @@ test(import_spse2_holds, [setup((setup_clean))]) :-
     forall( has_nl(legacy_pse, T, "Finish draft"),
             completed(legacy_pse, T) ).
 
+% ---------------------------------------------------------------------
+% Broadcast event tests (added in v0.2.0).  Each mutating predicate
+% must fire a spse4(Event) broadcast that subscribers can listen to.
+% ---------------------------------------------------------------------
+
+:- use_module(library(broadcast)).
+
+% Capture broadcast events in a thread-local list for assertion.
+:- dynamic captured_event_/1.
+
+capture_setup :-
+    retractall(captured_event_(_)),
+    listen(spse4_core_test, spse4(E), assertz(captured_event_(E))).
+
+capture_teardown :-
+    unlisten(spse4_core_test),
+    retractall(captured_event_(_)).
+
+captured(Events) :-
+    findall(E, captured_event_(E), Events).
+
+test(broadcast_task_added,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, [has_nl="A", status=open]),
+    captured(Events),
+    memberchk(task_added(medical, t1, [has_nl="A", status=open]), Events).
+
+test(broadcast_task_removed,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, [status=open]),
+    retractall(captured_event_(_)),  % clear creation event
+    task_retract(medical, t1),
+    captured(Events),
+    memberchk(task_removed(medical, t1), Events).
+
+test(broadcast_task_property_changed,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, [status=open]),
+    retractall(captured_event_(_)),
+    task_set_property(medical, t1, status, completed),
+    captured(Events),
+    memberchk(task_property_changed(medical, t1, status, completed), Events).
+
+test(broadcast_edge_added,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    retractall(captured_event_(_)),
+    edge_assert(medical, t1, depends, t2, []),
+    captured(Events),
+    memberchk(edge_added(medical, t1, depends, t2, []), Events).
+
+test(broadcast_edge_added_idempotent,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    % Re-asserting an existing edge must NOT re-broadcast edge_added.
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_assert(medical, t1, depends, t2, []),
+    retractall(captured_event_(_)),
+    edge_assert(medical, t1, depends, t2, []),
+    captured(Events),
+    \+ memberchk(edge_added(medical, _, _, _, _), Events).
+
+test(broadcast_edge_removed,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_assert(medical, t1, depends, t2, []),
+    retractall(captured_event_(_)),
+    edge_retract(medical, t1, depends, t2),
+    captured(Events),
+    memberchk(edge_removed(medical, t1, depends, t2), Events).
+
+test(broadcast_edge_removed_absent_silent,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    % Retracting a nonexistent edge must succeed but NOT broadcast.
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    retractall(captured_event_(_)),
+    edge_retract(medical, t1, depends, t2),
+    captured(Events),
+    \+ memberchk(edge_removed(_, _, _, _), Events).
+
+test(broadcast_task_retract_cascades_edge_removed,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    % Retracting a task with edges must broadcast edge_removed for
+    % each incident edge, in addition to task_removed.
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    task_create(medical, t3, []),
+    edge_assert(medical, t1, depends, t2, []),
+    edge_assert(medical, t3, depends, t1, []),
+    retractall(captured_event_(_)),
+    task_retract(medical, t1),
+    captured(Events),
+    memberchk(task_removed(medical, t1), Events),
+    memberchk(edge_removed(medical, t1, depends, t2), Events),
+    memberchk(edge_removed(medical, t3, depends, t1), Events).
+
 :- end_tests(spse4_core).

@@ -91,7 +91,7 @@ test(health_endpoint) :-
           json_read_dict(Stream, Dict),
           close(Stream),
           assertion(Dict.status == "ok"),
-          assertion(Dict.version == "0.1.0")
+          assertion(Dict.version == "0.2.0")
         ),
         teardown_server_(Port)).
 
@@ -233,10 +233,10 @@ test(strict_mode_allows_authed_user) :-
 test(broadcast_topic_reaches_listener) :-
     retractall(heard_(_)),
     listen(heard_token, spse4(E), assertz(heard_(E))),
-    spse4_broadcast(task_added(mt_b, xyz, "X", todo, [])),
+    spse4_broadcast(task_added(mt_b, xyz, [has_nl="X", status=open])),
     sleep(0.05),
     findall(E, heard_(E), All),
-    assertion(memberchk(task_added(mt_b, xyz, "X", todo, []), All)),
+    assertion(memberchk(task_added(mt_b, xyz, [has_nl="X", status=open]), All)),
     unlisten(heard_token).
 
 :- dynamic heard_/1.
@@ -262,5 +262,173 @@ test(empty_acl_denies_all) :-
           \+ spse4_acl_allows(eve, write, anything),
           spse4_user_remove(eve)
         )).
+
+% ---------------------------------------------------------------
+%   /tasks REST mutation endpoints (added v0.2.0)
+% ---------------------------------------------------------------
+
+%   post_json_(+URL, +Dict, -ReplyDict, -Code, +AuthOpts) is det.
+%
+%   Helper that posts a JSON body without relying on http_post/4's
+%   json(_) shorthand (which depends on library(http/http_json) writer
+%   hooks being visible inside the plunit submodule).  Works in any
+%   module by encoding the JSON to a string and sending via http_open/3.
+
+post_json_(URL, Dict, ReplyDict, Code, AuthOpts) :-
+    with_output_to(string(BodyStr), json_write_dict(current_output, Dict)),
+    catch( http_open(URL, S,
+                     [ method(post),
+                       post(string('application/json', BodyStr)),
+                       status_code(Code)
+                     | AuthOpts ]),
+           Err,
+           ( ReplyDict = error(Err), Code = 0, S = (-) ) ),
+    ( S == (-)
+    -> true
+    ;   ( catch( ( json_read_dict(S, ReplyDict) ),
+                 _, ReplyDict = _{} ),
+          close(S) )
+    ).
+
+%   delete_(+URL, -ReplyDict, -Code, +AuthOpts) is det.
+delete_(URL, ReplyDict, Code, AuthOpts) :-
+    catch( http_open(URL, S,
+                     [ method(delete),
+                       status_code(Code)
+                     | AuthOpts ]),
+           Err,
+           ( ReplyDict = error(Err), Code = 0, S = (-) ) ),
+    ( S == (-)
+    -> true
+    ;   ( catch( ( json_read_dict(S, ReplyDict) ),
+                 _, ReplyDict = _{} ),
+          close(S) )
+    ).
+
+test(post_tasks_creates_in_permissive_anon_denied) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(rest_mt_anon),
+          format(string(URL), "http://localhost:~w/tasks", [Port]),
+          post_json_(URL,
+                     _{mt: rest_mt_anon, id: t_anon,
+                       label: "Anon", status: open},
+                     _Reply, Code, []),
+          assertion(Code == 401)
+        ),
+        teardown_server_(Port)).
+
+test(post_tasks_creates_with_auth_then_visible) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(rest_mt_post),
+          spse4_user_remove(carol),
+          spse4_user_add(carol, "passw", [write([rest_mt_post])]),
+          format(string(URL), "http://localhost:~w/tasks", [Port]),
+          post_json_(URL,
+                     _{mt: rest_mt_post, id: new_task_1,
+                       label: "New One", status: open},
+                     Reply, Code,
+                     [ authorization(basic(carol, "passw")) ]),
+          assertion(Code == 201),
+          assertion(Reply.ok == true),
+          % Confirm it's actually in the store and visible via projection:
+          assertion(spse4_core:task_exists(rest_mt_post, new_task_1)),
+          format(string(PURL),
+                 "http://localhost:~w/projection?mt=rest_mt_post",
+                 [Port]),
+          http_open(PURL, S, []),
+          json_read_dict(S, PD),
+          close(S),
+          findall(NId,
+                  ( member(N, PD.elements.nodes),
+                    atom_string(NIdAtom, N.data.id),
+                    NId = NIdAtom ),
+                  NodeIds),
+          assertion(memberchk(new_task_1, NodeIds)),
+          spse4_user_remove(carol)
+        ),
+        teardown_server_(Port)).
+
+test(post_tasks_acl_denies_wrong_mt) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        with_strict_mode_(
+          ( seed_graph_(rest_mt_acl),
+            spse4_user_remove(dan),
+            spse4_user_add(dan, "ppp", [write([other_mt])]),
+            format(string(URL), "http://localhost:~w/tasks", [Port]),
+            post_json_(URL,
+                       _{mt: rest_mt_acl, id: bad_task,
+                         label: "Nope", status: open},
+                       _Reply, Code,
+                       [ authorization(basic(dan, "ppp")) ]),
+            assertion(Code == 403),
+            \+ spse4_core:task_exists(rest_mt_acl, bad_task),
+            spse4_user_remove(dan)
+          )),
+        teardown_server_(Port)).
+
+test(delete_tasks_removes_with_auth) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(rest_mt_del),
+          spse4_user_remove(eric),
+          spse4_user_add(eric, "ppp", [write([rest_mt_del])]),
+          format(string(URL),
+                 "http://localhost:~w/tasks/rest_mt_del/t1", [Port]),
+          delete_(URL, _Reply, Code,
+                  [ authorization(basic(eric, "ppp")) ]),
+          assertion(Code == 200),
+          \+ spse4_core:task_exists(rest_mt_del, t1),
+          spse4_user_remove(eric)
+        ),
+        teardown_server_(Port)).
+
+test(delete_tasks_404_on_missing) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(rest_mt_404),
+          spse4_user_remove(fran),
+          spse4_user_add(fran, "ppp", [write([rest_mt_404])]),
+          format(string(URL),
+                 "http://localhost:~w/tasks/rest_mt_404/no_such", [Port]),
+          delete_(URL, _Reply, Code,
+                  [ authorization(basic(fran, "ppp")) ]),
+          assertion(Code == 404),
+          spse4_user_remove(fran)
+        ),
+        teardown_server_(Port)).
+
+test(post_then_delete_round_trip_fires_broadcast) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(rest_mt_rt),
+          spse4_user_remove(gail),
+          spse4_user_add(gail, "ppp", [write([rest_mt_rt])]),
+          retractall(heard_(_)),
+          listen(rt_token, spse4(E), assertz(heard_(E))),
+          % POST
+          format(string(URL), "http://localhost:~w/tasks", [Port]),
+          post_json_(URL,
+                     _{mt: rest_mt_rt, id: rt1,
+                       label: "round trip", status: open},
+                     _R, _Code1,
+                     [ authorization(basic(gail, "ppp")) ]),
+          sleep(0.05),
+          findall(E, heard_(E), Heard1),
+          assertion(memberchk(task_added(rest_mt_rt, rt1, _), Heard1)),
+          % DELETE
+          format(string(DURL),
+                 "http://localhost:~w/tasks/rest_mt_rt/rt1", [Port]),
+          delete_(DURL, _R2, _Code2,
+                  [ authorization(basic(gail, "ppp")) ]),
+          sleep(0.05),
+          findall(E, heard_(E), Heard2),
+          assertion(memberchk(task_removed(rest_mt_rt, rt1), Heard2)),
+          unlisten(rt_token),
+          spse4_user_remove(gail)
+        ),
+        teardown_server_(Port)).
 
 :- end_tests(spse4_server).
