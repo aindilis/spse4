@@ -84,8 +84,8 @@ main_body_ :-
     setup_demo_users_(UserSource),
     format(user_output, "server_demo: users configured (~w)~n", [UserSource]),
     flush_output(user_output),
-    seed_autopackager_queue_,
-    format(user_output, "server_demo: queue seeded~n", []),
+    backend_spec_from_env_(BackendSpec),
+    format(user_output, "server_demo: backend = ~w~n", [BackendSpec]),
     flush_output(user_output),
     locate_web_dir_(WebDir),
     format(user_output, "server_demo: web dir resolved to ~w~n", [WebDir]),
@@ -100,7 +100,16 @@ main_body_ :-
     spse4_server_start([ port(4040),
                          acl_mode(permissive),  % local dev only
                          bind(BindAtom),
-                         client_dir(WebDir) ]),
+                         client_dir(WebDir),
+                         mt_store_backend(BackendSpec) ]),
+    %  Seed AFTER spse4_server_start, so the assertions go into the
+    %  selected backend rather than into the memory default.  The
+    %  seeder is idempotent: if the autopackager mt already has the
+    %  expected tasks (e.g. carried over from a prior MySQL session),
+    %  the seeder is a no-op.
+    seed_autopackager_queue_,
+    format(user_output, "server_demo: queue seeded~n", []),
+    flush_output(user_output),
     format("~n=====================================================~n"),
     format("SPSE4 demo running.~n"),
     format("  Web UI:     http://localhost:4040/~n"),
@@ -117,6 +126,48 @@ main_body_ :-
     format("=====================================================~n~n"),
     flush_output,
     thread_get_message(_).       % park forever
+
+%   backend_spec_from_env_(-Spec) is det.
+%
+%   Build the mt_store_backend/1 option value from environment
+%   variables.  Set SPSE4_MYSQL_DSN to enable the persistent MySQL
+%   backend; otherwise the demo runs in memory-only mode (the
+%   v0.2.x default), which is fine for kicking the tires but loses
+%   state at process exit.
+%
+%   Recognized env vars:
+%     SPSE4_MYSQL_DSN   ODBC alias from ~/.odbc.ini.  Required to
+%                       enable MySQL.  When unset or empty, falls
+%                       back to memory.
+%     SPSE4_MYSQL_USER  DB user (optional; usually in the DSN)
+%     SPSE4_MYSQL_PASS  DB password (optional; usually in the DSN)
+%     SPSE4_MYSQL_DB    DB name (informational only)
+
+backend_spec_from_env_(Spec) :-
+    (   getenv('SPSE4_MYSQL_DSN', DsnStr), DsnStr \= ''
+    ->  atom_string(Dsn, DsnStr),
+        env_user_opt_(UserOpt),
+        env_pass_opt_(PassOpt),
+        env_db_opt_(DbOpt),
+        append([ [connection_id(Dsn), dsn(Dsn)],
+                 UserOpt, PassOpt, DbOpt ], MySqlOpts),
+        Spec = mysql(MySqlOpts)
+    ;   Spec = memory
+    ).
+
+env_user_opt_([user(A)]) :-
+    getenv('SPSE4_MYSQL_USER', S), S \= '', !,
+    atom_string(A, S).
+env_user_opt_([]).
+
+env_pass_opt_([password(P)]) :-
+    getenv('SPSE4_MYSQL_PASS', P), P \= '', !.
+env_pass_opt_([]).
+
+env_db_opt_([database(A)]) :-
+    getenv('SPSE4_MYSQL_DB', S), S \= '', !,
+    atom_string(A, S).
+env_db_opt_([]).
 
 %   locate_web_dir_(-Dir) is det.
 %
@@ -218,14 +269,27 @@ load_builtin_demo_users_ :-
 
 seed_autopackager_queue_ :-
     Mt = autopackager,
+    %  Idempotent semantics: only seed if the autopackager mt is
+    %  brand-new (or has been emptied).  This matters for the MySQL
+    %  backend, where state survives across restarts: we don't want
+    %  to wipe the user's hand-crafted tasks every time the demo
+    %  server bounces.  For memory-only mode, the mt is always empty
+    %  on startup and seeding always runs.
     (   mt_store:mt_exists(Mt)
     ->  spse4_core:task_list(Mt, Existing),
-        forall(member(Id, Existing),
-               spse4_core:task_retract(Mt, Id))
-    ;   mt_store:mt_create(Mt)
-    ),
+        (   Existing == []
+        ->  do_seed_(Mt)
+        ;   format(user_output,
+                   "server_demo: autopackager mt has ~w tasks; \c
+                    skipping seed~n",
+                   [Existing]),
+            flush_output(user_output)
+        )
+    ;   mt_store:mt_create(Mt),
+        do_seed_(Mt)
+    ).
 
-    % Tasks from v0.1.12's autopackager_demo.pl, in the same order.
+do_seed_(Mt) :-
     spse4_core:task_create(Mt, pkg_eprover,
         [ has_nl="Package eprover for Debian",
           status=completed ]),
