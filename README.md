@@ -13,7 +13,7 @@ Database: Cluster, Study and Apply) project.
 ![SPSE4 rendering the autopackager task graph in Cytoscape.js, with the critical path highlighted in purple](docs/spse4-screenshot.png)
 
 *v0.2.2 — the SPSE4 web client rendering the FRDCSA Autopackager task queue
-as a directed graph, with the critical path to "submit autopackager to FRKCSA project repos" highlighted.*
+as a directed graph.*
 
 ---
 
