@@ -45,9 +45,19 @@ as a directed graph.*
   otherwise falls back to throwaway demo accounts. Demo credentials
   renamed from the original `alice`/`hunter2` placeholders to
   `demo`/`demo`.
-- **v0.2.x in flight**: WebSocket push (replacing the 3-second poll),
-  `spse4-mode.el` Emacs mode using `pengine.el`, multi-instance
-  broadcast demo recording.
+- **v0.3.0**: persistent storage. `pack-mt-store` gains a sixteen-
+  callback backend dispatch interface and a `prolog-mysql-store`-
+  backed implementation alongside the original in-memory backend.
+  `spse4_server_start/1` accepts a new `mt_store_backend(memory |
+  mysql(_))` option. State now survives Prolog restarts when the
+  MySQL backend is selected. Adds 13 new PlUnit tests (skipped
+  cleanly when no MySQL is available); 129 tests total.
+- **v0.4.x roadmap**: third backend — a SQL-direct rewrite addressing
+  `prolog-mysql-store`'s known limitations (RAM-cached reads, single
+  ODBC handle, no auto-reconnect, no support for bare-atom facts).
+  Also: WebSocket push (replacing the 3-second poll), `spse4-mode.el`
+  Emacs mode using `pengine.el`, multi-instance broadcast demo
+  recording.
 
 See `CHANGES.md` for the per-version changelog.
 
@@ -100,6 +110,12 @@ The **foundation packs** (`pack-allen`, `pack-mt-store`, `pack-pddl`) have no
 SPSE4-specific dependencies and are independently useful to anyone doing
 temporal reasoning, microtheory-based KR, or PDDL I/O in SWI-Prolog.
 
+Since v0.3.0, `pack-mt-store` supports two storage backends behind a stable
+public API: an in-memory default (zero-config, state lost at process exit)
+and a `prolog-mysql-store`-backed persistent option. Backend selection is
+a single option to `spse4_server_start/1`; user code calling
+`mt_assert/3`, `ist/2`, etc. is unchanged across backends.
+
 All packs follow Covington and Bratko's Prolog coding conventions: `:- module/2`
 on every file, PlDoc docstrings on every exported predicate, PlUnit tests
 colocated in `t/`, strings for all user-visible text, atoms for identifiers
@@ -132,7 +148,7 @@ swipl -g "pack_install('pack-spse4-server',   [interactive(false)])" -t halt
 ```sh
 git clone https://github.com/aindilis/spse4.git
 cd spse4
-swipl run_all_tests.pl   # should report 79 tests passing
+swipl run_all_tests.pl   # should report 129 tests passing
 ```
 
 ---
@@ -199,9 +215,11 @@ SPSE4 as a network service must remain free.
 
 ## Acknowledgements
 
-- The SPSE4 v0.1 design and implementation was a collaboration between
-  Andrew Dougherty (`aindilis`) and Anthropic's Claude Opus 4.7 over April
-  2026.
+- SPSE4 has been developed since April 2026 as a collaboration between
+  Andrew Dougherty (`aindilis`) and Anthropic's Claude (Opus 4.7 and
+  successors). The v0.1 foundation, v0.2.x collaboration layer, and
+  v0.3.0 persistent backend were all produced through pair-programming
+  sessions.
 - SPSE2 (2011) is the conceptual ancestor, and many of its design choices
   carry forward.
 - The `pack-allen` Allen interval algebra is implemented per Allen (1983);
