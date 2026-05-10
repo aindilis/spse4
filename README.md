@@ -12,7 +12,7 @@ Database: Cluster, Study and Apply) project.
 
 ![SPSE4 rendering the autopackager task graph in Cytoscape.js, with the critical path highlighted in purple](docs/spse4-screenshot.png)
 
-*v0.1.29 — the SPSE4 web client rendering the FRDCSA Autopackager task queue
+*v0.2.2 — the SPSE4 web client rendering the FRDCSA Autopackager task queue
 as a directed graph, with the critical path to "submit autopackager to FRKCSA project repos" highlighted.*
 
 ---
@@ -32,10 +32,16 @@ as a directed graph, with the critical path to "submit autopackager to FRKCSA pr
 - **v0.2.1**: status-edit. Click the status pill in the side panel to
   change a task's status inline; `PATCH /tasks/<mt>/<id>` server
   endpoint with the same auth/ACL story as POST/DELETE. Adds 7 PlUnit
-  tests. Closes the basic CRUD story.
+  tests.
+- **v0.2.2**: edge editing. Toolbar "+ Edge" modal for creating edges,
+  per-row `✎`/`✕` actions in the side panel for editing edge props and
+  deleting edges, three new server endpoints (`POST /edges`,
+  `DELETE /edges/<mt>/<from>/<kind>/<to>`,
+  `PATCH /edges/<mt>/<from>/<kind>/<to>`). Adds 12 PlUnit tests.
+  Closes the basic CRUD story for tasks and edges.
 - **v0.2.x in flight**: WebSocket push (replacing the 3-second poll),
-  edge editing UI, `spse4-mode.el` Emacs mode using `pengine.el`,
-  multi-instance broadcast demo recording.
+  `spse4-mode.el` Emacs mode using `pengine.el`, multi-instance
+  broadcast demo recording.
 
 See `CHANGES.md` for the per-version changelog.
 

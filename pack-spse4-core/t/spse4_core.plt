@@ -218,4 +218,47 @@ test(broadcast_task_retract_cascades_edge_removed,
     memberchk(edge_removed(medical, t1, depends, t2), Events),
     memberchk(edge_removed(medical, t3, depends, t1), Events).
 
+% ---------------------------------------------------------------------
+% edge_set_properties tests (added in v0.2.2).  Replaces the property
+% bag on an existing edge in a single transaction; broadcasts a new
+% =|edge_property_changed|= event whose payload is the canonical
+% Key=Value list.
+% ---------------------------------------------------------------------
+
+test(edge_set_properties_replaces_bag, [setup((setup_clean, mk_medical))]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_assert(medical, t1, depends, t2, [weight=1, note="initial"]),
+    edge_set_properties(medical, t1, depends, t2, [weight=5, urgency=high]),
+    edge_property(medical, t1, depends, t2, Pairs),
+    msort(Pairs, Sorted),
+    msort([urgency=high, weight=5], Sorted).
+
+test(edge_set_properties_clears_when_empty,
+     [setup((setup_clean, mk_medical))]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_assert(medical, t1, depends, t2, [weight=3, note="x"]),
+    edge_set_properties(medical, t1, depends, t2, []),
+    edge_property(medical, t1, depends, t2, []).
+
+test(edge_set_properties_missing_edge_throws,
+     [setup((setup_clean, mk_medical)),
+      error(existence_error(edge, edge(t1, depends, t2)))]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_set_properties(medical, t1, depends, t2, [weight=1]).
+
+test(broadcast_edge_property_changed,
+     [setup((setup_clean, mk_medical, capture_setup)),
+      cleanup(capture_teardown)]) :-
+    task_create(medical, t1, []),
+    task_create(medical, t2, []),
+    edge_assert(medical, t1, depends, t2, []),
+    retractall(captured_event_(_)),
+    edge_set_properties(medical, t1, depends, t2, [weight=5]),
+    captured(Events),
+    memberchk(edge_property_changed(medical, t1, depends, t2, [weight=5]),
+              Events).
+
 :- end_tests(spse4_core).

@@ -329,6 +329,10 @@ acl_allows_([_|R], Mode, Mt) :- acl_allows_(R, Mode, Mt).
 % internally to the per-method clauses below.
 :- http_handler(root(tasks), tasks_dispatch_,
                 [ method(*), prefix ]).
+% /edges follows the same single-prefix-handler pattern as /tasks
+% for the same reason; see the note above tasks_dispatch_.
+:- http_handler(root(edges), edges_dispatch_,
+                [ method(*), prefix ]).
 
 % Static file handler, installed lazily on start if a client_dir was
 % given.  We don't install it at file load time because the path may
@@ -371,6 +375,9 @@ root_api_landing_(_Request) :-
     format("  POST   /tasks         body: {mt, id, label, status[, props]}  (auth required)~n"),
     format("  DELETE /tasks/<mt>/<id>                                        (auth required)~n"),
     format("  PATCH  /tasks/<mt>/<id> body: {status: <new_status>}           (auth required)~n"),
+    format("  POST   /edges         body: {mt, from, kind, to[, props]}      (auth required)~n"),
+    format("  DELETE /edges/<mt>/<from>/<kind>/<to>                          (auth required)~n"),
+    format("  PATCH  /edges/<mt>/<from>/<kind>/<to> body: {props: {...}}     (auth required)~n"),
     format("~n"),
     format("No web client is configured on this server.  To enable~n"),
     format("the Cytoscape UI, start with client_dir(Dir) option:~n"),
@@ -385,7 +392,7 @@ health_handler(_Request) :-
     findall(P, server_port_(P), Ports),
     aggregate_all(count, user_record_(_, _, _), NUsers),
     reply_json_dict(_{ status: ok,
-                       version: "0.2.1",
+                       version: "0.2.2",
                        ports: Ports,
                        users: NUsers
                      }).
@@ -884,6 +891,27 @@ parse_task_path_(PathInfo, Mt, Id) :-
     Mt = MtAtom,
     Id = IdAtom.
 
+%   parse_edge_path_(+PathInfo, -Mt, -From, -Kind, -To) is semidet.
+%
+%   Sibling of parse_task_path_/3 for the `/edges` prefix handler.
+%   Expects exactly four non-empty path segments after "/edges":
+%   "<mt>/<from>/<kind>/<to>".
+parse_edge_path_(PathInfo, Mt, From, Kind, To) :-
+    ( atom(PathInfo) -> Atom = PathInfo ; atom_string(Atom, PathInfo) ),
+    atom_codes(Atom, Codes0),
+    (   Codes0 = [0'/ | Rest] -> Codes = Rest ; Codes = Codes0 ),
+    atom_codes(Stripped, Codes),
+    atomic_list_concat(Parts, '/', Stripped),
+    Parts = [MtAtom, FromAtom, KindAtom, ToAtom],
+    MtAtom   \== '',
+    FromAtom \== '',
+    KindAtom \== '',
+    ToAtom   \== '',
+    Mt = MtAtom,
+    From = FromAtom,
+    Kind = KindAtom,
+    To = ToAtom.
+
 %   extra_props_from_body_(+Body, -PropList) is det.
 %
 %   If the body has a `props` key whose value is a dict, return a list
@@ -901,6 +929,200 @@ extra_props_from_body_(Body, Props) :-
                 ),
                 Props)
     ;   Props = []
+    ).
+
+%   edge_props_from_body_(+Body, -PropList) is det.
+%
+%   For /edges endpoints: pull the optional top-level `props` dict out
+%   of the body verbatim as a Key=Value list.  Unlike the /tasks
+%   variant, no keys are reserved; the caller supplies whatever
+%   property bag they want.  Empty/missing → [].
+edge_props_from_body_(Body, Props) :-
+    (   get_dict(props, Body, ExtraDict),
+        is_dict(ExtraDict)
+    ->  dict_pairs(ExtraDict, _, Pairs),
+        findall(K=V,
+                ( member(K-V, Pairs) ),
+                Props)
+    ;   Props = []
+    ).
+
+% ---------------------------------------------------------------
+%   /edges: REST mutation endpoints (added v0.2.2)
+% ---------------------------------------------------------------
+%
+%   POST /edges
+%     body: { "mt": "<atom>", "from": "<atom>", "kind": "<atom>",
+%             "to": "<atom>", "props": { ... }   // optional
+%           }
+%     201 Created     on success, body { ok: true, mt, from, kind, to }
+%     400 Bad Request   if body malformed or kind unknown
+%     401 Unauthorized  if no auth
+%     403 Forbidden     if user lacks write on Mt
+%     404 Not Found     if From or To task does not exist in Mt
+%     409 Conflict      if the (from, kind, to) edge already exists
+%
+%   DELETE /edges/<mt>/<from>/<kind>/<to>
+%     200 OK            on success
+%     400, 401, 403
+%     404 Not Found     if the edge does not exist
+%
+%   PATCH /edges/<mt>/<from>/<kind>/<to>
+%     body: { "props": { ... } }   // missing/empty bag clears all props
+%     200 OK            on success, body { ok: true, mt, from, kind, to }
+%     400, 401, 403, 404
+%
+%   All endpoints fire pack-spse4-core broadcast events as a
+%   side-effect, so the relay propagates to live pengines and the
+%   /events poll endpoint sees them on the next call.
+
+edges_dispatch_(Request) :-
+    memberchk(method(M), Request),
+    (   M == post   -> edges_post_handler(Request)
+    ;   M == delete -> edges_delete_handler(Request)
+    ;   M == patch  -> edges_patch_handler(Request)
+    ;   reply_json_dict(_{ error: method_not_allowed,
+                           message: "method not allowed; use POST, DELETE, or PATCH" },
+                        [status(405)])
+    ).
+
+edges_post_handler(Request) :-
+    catch( do_edges_post_(Request),
+           reply_already_sent,
+           true ).
+
+do_edges_post_(Request) :-
+    http_authenticate_optional_(Request, User),
+    catch( http_read_json_dict(Request, Body, []),
+           _,
+           ( reply_json_dict(_{ error: bad_request,
+                                message: "request body must be JSON" },
+                             [status(400)]),
+             throw(reply_already_sent) ) ),
+    (   _{ mt: MtAtomic, from: FromAtomic, kind: KindAtomic, to: ToAtomic } :< Body
+    ->  to_atom_(MtAtomic, Mt),
+        to_atom_(FromAtomic, From),
+        to_atom_(KindAtomic, Kind),
+        to_atom_(ToAtomic, To),
+        edge_props_from_body_(Body, Props),
+        (   User == ''
+        ->  reply_json_dict(_{ error: unauthorized,
+                               message: "authentication required to add edges" },
+                            [status(401)])
+        ;   spse4_acl_allows(User, write, Mt)
+        ->  (   spse4_core:valid_edge_kind(Kind)
+            ->  (   spse4_core:task_exists(Mt, From),
+                    spse4_core:task_exists(Mt, To)
+                ->  (   spse4_core:edge(Mt, From, Kind, To)
+                    ->  format(atom(Conf),
+                               "edge ~w-~w-~w already exists in mt ~w",
+                               [From, Kind, To, Mt]),
+                        reply_json_dict(_{ error: conflict, message: Conf },
+                                        [status(409)])
+                    ;   catch( spse4_core:edge_assert(Mt, From, Kind, To, Props),
+                               E,
+                               ( format(atom(Msg), "edge create failed: ~q", [E]),
+                                 reply_json_dict(_{ error: bad_request, message: Msg },
+                                                 [status(400)]),
+                                 throw(reply_already_sent) ) ),
+                        reply_json_dict(_{ ok: true, mt: Mt, from: From,
+                                           kind: Kind, to: To },
+                                        [status(201)])
+                    )
+                ;   format(atom(EM),
+                           "endpoint task missing in mt ~w (from=~w, to=~w)",
+                           [Mt, From, To]),
+                    reply_json_dict(_{ error: not_found, message: EM },
+                                    [status(404)])
+                )
+            ;   format(atom(KM), "unknown edge kind: ~w", [Kind]),
+                reply_json_dict(_{ error: bad_request, message: KM },
+                                [status(400)])
+            )
+        ;   reply_forbidden_(User, write, Mt)
+        )
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "missing required fields: mt, from, kind, to" },
+                        [status(400)])
+    ).
+
+edges_delete_handler(Request) :-
+    catch( do_edges_delete_(Request),
+           reply_already_sent,
+           true ).
+
+do_edges_delete_(Request) :-
+    http_authenticate_optional_(Request, User),
+    (   memberchk(path_info(PathInfo), Request),
+        parse_edge_path_(PathInfo, Mt, From, Kind, To)
+    ->  (   User == ''
+        ->  reply_json_dict(_{ error: unauthorized,
+                               message: "authentication required to delete edges" },
+                            [status(401)])
+        ;   spse4_acl_allows(User, write, Mt)
+        ->  (   spse4_core:edge(Mt, From, Kind, To)
+            ->  catch( spse4_core:edge_retract(Mt, From, Kind, To),
+                       E,
+                       ( format(atom(Msg), "edge delete failed: ~q", [E]),
+                         reply_json_dict(_{ error: bad_request, message: Msg },
+                                         [status(400)]),
+                         throw(reply_already_sent) ) ),
+                reply_json_dict(_{ ok: true, mt: Mt, from: From,
+                                   kind: Kind, to: To })
+            ;   format(atom(M),
+                       "edge ~w-~w-~w not found in mt ~w",
+                       [From, Kind, To, Mt]),
+                reply_json_dict(_{ error: not_found, message: M },
+                                [status(404)])
+            )
+        ;   reply_forbidden_(User, write, Mt)
+        )
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "expected DELETE /edges/<mt>/<from>/<kind>/<to>" },
+                        [status(400)])
+    ).
+
+edges_patch_handler(Request) :-
+    catch( do_edges_patch_(Request),
+           reply_already_sent,
+           true ).
+
+do_edges_patch_(Request) :-
+    http_authenticate_optional_(Request, User),
+    (   memberchk(path_info(PathInfo), Request),
+        parse_edge_path_(PathInfo, Mt, From, Kind, To)
+    ->  catch( http_read_json_dict(Request, Body, []),
+               _,
+               ( reply_json_dict(_{ error: bad_request,
+                                    message: "request body must be JSON" },
+                                 [status(400)]),
+                 throw(reply_already_sent) ) ),
+        edge_props_from_body_(Body, Props),
+        (   User == ''
+        ->  reply_json_dict(_{ error: unauthorized,
+                               message: "authentication required to modify edges" },
+                            [status(401)])
+        ;   spse4_acl_allows(User, write, Mt)
+        ->  (   spse4_core:edge(Mt, From, Kind, To)
+            ->  catch( spse4_core:edge_set_properties(Mt, From, Kind, To, Props),
+                       E,
+                       ( format(atom(Msg), "edge patch failed: ~q", [E]),
+                         reply_json_dict(_{ error: bad_request, message: Msg },
+                                         [status(400)]),
+                         throw(reply_already_sent) ) ),
+                reply_json_dict(_{ ok: true, mt: Mt, from: From,
+                                   kind: Kind, to: To })
+            ;   format(atom(M),
+                       "edge ~w-~w-~w not found in mt ~w",
+                       [From, Kind, To, Mt]),
+                reply_json_dict(_{ error: not_found, message: M },
+                                [status(404)])
+            )
+        ;   reply_forbidden_(User, write, Mt)
+        )
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "expected PATCH /edges/<mt>/<from>/<kind>/<to>" },
+                        [status(400)])
     ).
 
 % ---------------------------------------------------------------
@@ -1069,6 +1291,7 @@ event_mt_(task_removed(Mt,_), Mt) :- !.
 event_mt_(task_property_changed(Mt,_,_,_), Mt) :- !.
 event_mt_(edge_added(Mt,_,_,_,_), Mt) :- !.
 event_mt_(edge_removed(Mt,_,_,_), Mt) :- !.
+event_mt_(edge_property_changed(Mt,_,_,_,_), Mt) :- !.
 event_mt_(_, '') :- !.            % unknown event: global (anon scope)
 
 %!  spse4_broadcast(+Event) is det.

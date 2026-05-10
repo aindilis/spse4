@@ -1,5 +1,73 @@
 # SPSE4 — Changelog
 
+## v0.2.2 — 2026-05-10
+
+Edge editing closes the structural-CRUD story.  Tasks gained add/delete
+in v0.2.0 and inline status edit in v0.2.1; v0.2.2 brings the same
+treatment to edges.  You can now create new edges through a toolbar
+modal, edit any edge's property dict in place, or delete an edge from
+the side-panel row — all with the same auth, ACL, and broadcast
+semantics as task mutations.
+
+### Added
+
+- **`pack-spse4-server`**: REST mutation endpoints for edges
+  - `POST /edges`  body `{mt, from, kind, to[, props]}`            — 201 / 400 / 401 / 403 / 404 / 409
+  - `DELETE /edges/<mt>/<from>/<kind>/<to>`                        — 200 / 401 / 403 / 404
+  - `PATCH /edges/<mt>/<from>/<kind>/<to>` body `{props: {...}}`   — 200 / 400 / 401 / 403 / 404
+
+  All three require authentication (401 if anon) and enforce the
+  per-microtheory write ACL (403 if denied).  POST returns 409 if the
+  edge already exists, 404 if either endpoint task is missing, and 400
+  if the edge kind is not in `valid_edge_kind/1`.  PATCH replaces the
+  edge's property dict wholesale (it is not a merge — pass the full
+  desired props).  Mutations broadcast `edge_added` /
+  `edge_removed` / `edge_property_changed` per the v0.2.0 event
+  vocabulary, and propagate to other clients through the existing
+  `/events` poll relay.
+
+- **`spse4-web`**:
+  - "+ Edge" button in the toolbar opens a modal for adding a new edge
+    (from, to, kind, props).  Keyboard shortcut: `e`.  When the modal
+    opens with a task selected, From is pre-filled with the current
+    selection and focus jumps to To.
+  - Each row in the side panel's "depends on" / "depended on by"
+    sections now has a per-row `✎ edit-props` and `✕ delete` action.
+    Edit opens the same modal in edit-mode (from/kind/to disabled,
+    props editable).  Delete confirms then calls `DELETE /edges/...`.
+    The clickable body of the row (kind badge + endpoint id + status)
+    remains the navigation target; action-button clicks
+    `stopPropagation()` so they don't navigate.
+  - `API.createEdge`, `API.deleteEdge`, and `API.updateEdgeProps`
+    clients matching the new REST endpoints, with auth-aware fetch
+    and structured error handling.
+  - Edge-kind badges in the side panel are color-coded to match the
+    cytoscape edge colors (provides=blue, attacks=red, supports=green,
+    eases=neutral-dotted; depends and the rare kinds use the default
+    neutral chip).
+
+- **Tests**: 12 new PlUnit tests in `pack-spse4-server` covering
+  POST/DELETE/PATCH happy paths and error conditions (anon-denied,
+  ACL-denied wrong mt, 404 on missing endpoint task, 404 on missing
+  edge, 409 on duplicate, 400 on unknown kind), plus broadcast-fires
+  verification for both `edge_added` (POST) and `edge_property_changed`
+  (PATCH).
+
+### Changed
+
+- `pack-spse4-server` version bumped to 0.2.2; `/health` now reports
+  `version: "0.2.2"`.  The startup banner lists the three new `/edges`
+  routes.
+
+### Notes
+
+- v0.2.2 closes the basic CRUD story: tasks and edges both have
+  add / inline-edit / delete UI, all backed by REST endpoints with
+  consistent auth, ACL, and broadcast semantics.  WebSocket push
+  (replacing the 3-second poll), `spse4-mode.el`, and the
+  multi-instance broadcast demo recording remain on the v0.2.x
+  roadmap.
+
 ## v0.2.1 — 2026-05-10
 
 Status-edit completes the basic CRUD story.  Click the status pill in

@@ -36,6 +36,7 @@
             % Edges
             edge_assert/5,              % +Mt, +From, +Kind, +To, +Properties
             edge_retract/4,             % +Mt, +From, +Kind, +To
+            edge_set_properties/5,      % +Mt, +From, +Kind, +To, +Properties
             edge/4,                     % ?Mt, ?From, ?Kind, ?To
             edge_property/5,            % +Mt, +From, +Kind, +To, ?Pairs
             edges_of_kind/3,            % +Mt, +Kind, -Edges
@@ -270,6 +271,41 @@ edge_retract(Mt, From, Kind, To) :-
         broadcast(spse4(edge_removed(Mt, From, Kind, To)))
     ;   true
     ).
+
+%%  edge_set_properties(+Mt, +From, +Kind, +To, +Properties) is det.
+%
+%   Replace the property bag on an existing edge.  Retracts every
+%   current edge_property fact for the (From, Kind, To) edge, then
+%   asserts the new ones.  Properties is a list of =|Key=Value|= or
+%   =|Key-Value|= pairs (matching =|edge_assert/5|='s shape).
+%
+%   Broadcasts =|spse4(edge_property_changed(Mt, From, Kind, To, NewProps))|=
+%   on success, where NewProps is the normalised =|[Key=Value, ...]|= list.
+%
+%   Throws =|existence_error(edge, edge(From, Kind, To))|= if the edge
+%   does not exist in Mt.
+
+edge_set_properties(Mt, From, Kind, To, Props) :-
+    must_be(atom, Mt),
+    must_be(atom, From),
+    must_be(atom, Kind),
+    must_be(atom, To),
+    must_be(list, Props),
+    (   ist(Mt, edge(From, Kind, To))
+    ->  true
+    ;   existence_error(edge, edge(From, Kind, To))
+    ),
+    % Normalise to canonical Key=Value list shape for the broadcast event.
+    maplist(normalise_pair_, Props, NormProps),
+    forall(ist(Mt, edge_property(From, Kind, To, K0, V0)),
+           mt_retract(Mt, edge_property(From, Kind, To, K0, V0))),
+    forall(member(K=V, NormProps),
+           mt_assert(Mt, edge_property(From, Kind, To, K, V))),
+    broadcast(spse4(edge_property_changed(Mt, From, Kind, To, NormProps))).
+
+normalise_pair_(K=V, K=V) :- !.
+normalise_pair_(K-V, K=V) :- !.
+normalise_pair_(P, _) :- domain_error(property_pair, P).
 
 %%  edge(?Mt, ?From, ?Kind, ?To) is nondet.
 edge(Mt, From, Kind, To) :-

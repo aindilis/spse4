@@ -135,6 +135,76 @@
       }
       return parsed;
     },
+
+    async createEdge({ mt, from, kind, to, props }) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const body = { mt, from, kind, to };
+      if (props && Object.keys(props).length > 0) body.props = props;
+      const res = await fetch(State.baseUrl + '/edges', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
+
+    async deleteEdge(mt, from, kind, to) {
+      const headers = {};
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const url = `${State.baseUrl}/edges/${encodeURIComponent(mt)}/${encodeURIComponent(from)}/${encodeURIComponent(kind)}/${encodeURIComponent(to)}`;
+      const res = await fetch(url, { method: 'DELETE', headers });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
+
+    async updateEdgeProps(mt, from, kind, to, props) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const url = `${State.baseUrl}/edges/${encodeURIComponent(mt)}/${encodeURIComponent(from)}/${encodeURIComponent(kind)}/${encodeURIComponent(to)}`;
+      const body = { props: props || {} };
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
   };
 
   // ============================================================
@@ -564,12 +634,18 @@
     if (lf) rows.push({ k: 'latest finish', v: lf });
 
     // Structural: outgoing depends = "depends on", incoming = "dependents"
+    // (kept for the meta summary block).
     const outDeps = edges.filter(e => e.data.source === d.id && e.data.kind === 'depends');
     const inDeps  = edges.filter(e => e.data.target === d.id && e.data.kind === 'depends');
     const blockers = outDeps.filter(e => {
       const tgt = nodes.find(n => n.data.id === e.data.target);
       return tgt && tgt.data.status !== 'completed';
     });
+
+    // All incident edges (any kind) for the new outgoing/incoming
+    // sections that support per-row edit/delete.
+    const outAll = edges.filter(e => e.data.source === d.id);
+    const inAll  = edges.filter(e => e.data.target === d.id);
 
     rows.push({ k: 'dependencies', v: String(outDeps.length) });
     rows.push({ k: 'dependents',   v: String(inDeps.length) });
@@ -596,40 +672,43 @@
       blSec.style.display = 'none';
     }
 
-    // Depends on
+    // Outgoing edges (any kind): row shows kind + target id + status,
+    // plus edit/delete buttons.  Click the row body to navigate to target.
     const depsSec = document.getElementById('d-deps-section');
-    if (outDeps.length > 0) {
+    if (outAll.length > 0) {
       depsSec.style.display = 'block';
-      document.getElementById('d-deps').innerHTML = outDeps.map(e => {
+      document.getElementById('d-deps').innerHTML = outAll.map(e => {
         const tgt = nodes.find(n => n.data.id === e.data.target);
         const status = tgt ? tgt.data.status : '?';
-        return `<div class="edge-item" data-id="${e.data.target}">
-          <span class="e-id">${escapeHtml(e.data.target)}</span>
-          <span class="e-status">${escapeHtml(status)}</span>
-        </div>`;
+        return renderEdgeRow_({
+          fromId: d.id, toId: e.data.target, kind: e.data.kind,
+          otherId: e.data.target, otherStatus: status, props: e.data.props || {},
+          direction: 'out',
+        });
       }).join('');
     } else {
       depsSec.style.display = 'none';
     }
 
-    // Dependents
+    // Incoming edges (any kind).
     const depsBySec = document.getElementById('d-dependents-section');
-    if (inDeps.length > 0) {
+    if (inAll.length > 0) {
       depsBySec.style.display = 'block';
-      document.getElementById('d-dependents').innerHTML = inDeps.map(e => {
+      document.getElementById('d-dependents').innerHTML = inAll.map(e => {
         const src = nodes.find(n => n.data.id === e.data.source);
         const status = src ? src.data.status : '?';
-        return `<div class="edge-item" data-id="${e.data.source}">
-          <span class="e-id">${escapeHtml(e.data.source)}</span>
-          <span class="e-status">${escapeHtml(status)}</span>
-        </div>`;
+        return renderEdgeRow_({
+          fromId: e.data.source, toId: d.id, kind: e.data.kind,
+          otherId: e.data.source, otherStatus: status, props: e.data.props || {},
+          direction: 'in',
+        });
       }).join('');
     } else {
       depsBySec.style.display = 'none';
     }
 
-    // Wire edge-list clicks to selection
-    document.querySelectorAll('.blocker-item, .edge-item').forEach(el => {
+    // Wire row clicks (navigation) and per-row buttons (edit/delete).
+    document.querySelectorAll('.blocker-item').forEach(el => {
       el.addEventListener('click', () => {
         State.selectedId = el.dataset.id;
         renderPanel();
@@ -639,6 +718,34 @@
           target.select();
         }
       });
+    });
+    document.querySelectorAll('.edge-row').forEach(el => {
+      const body = el.querySelector('.edge-row-body');
+      if (body) {
+        body.addEventListener('click', () => {
+          State.selectedId = el.dataset.other;
+          renderPanel();
+          const target = cy.getElementById(State.selectedId);
+          if (target.length) {
+            cy.animate({ center: { eles: target }, zoom: cy.zoom(), duration: 180 });
+            target.select();
+          }
+        });
+      }
+      const delBtn = el.querySelector('.edge-row-del');
+      if (delBtn) {
+        delBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          deleteEdgeFromRow(el);
+        });
+      }
+      const editBtn = el.querySelector('.edge-row-edit');
+      if (editBtn) {
+        editBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          openEdgePropsEditor(el);
+        });
+      }
     });
 
     // Action buttons
@@ -770,6 +877,90 @@
     } catch (e) {
       alert(`Delete failed: ${e.message || e}`);
     }
+  }
+
+  // ============================================================
+  // Mutation: edge CRUD via side-panel rows (added v0.2.2)
+  // ============================================================
+
+  // Render one row of the outgoing/incoming edge list.  The row body
+  // (kind badge + other endpoint id + status) is the navigation target;
+  // the action buttons live in their own column so clicks on them don't
+  // bubble into navigation.
+  function renderEdgeRow_(opts) {
+    const { fromId, toId, kind, otherId, otherStatus, props, direction } = opts;
+    const propStr = encodeURIComponent(JSON.stringify(props || {}));
+    return `<div class="edge-row" data-from="${escapeHtml(fromId)}" data-to="${escapeHtml(toId)}" data-kind="${escapeHtml(kind)}" data-other="${escapeHtml(otherId)}" data-direction="${direction}" data-props="${propStr}">
+      <div class="edge-row-body">
+        <span class="edge-kind kind-${escapeHtml(kind)}">${escapeHtml(kind)}</span>
+        <span class="e-id">${escapeHtml(otherId)}</span>
+        <span class="e-status">${escapeHtml(otherStatus)}</span>
+      </div>
+      <div class="edge-row-actions">
+        <button class="edge-row-edit" title="Edit props">✎</button>
+        <button class="edge-row-del" title="Delete edge">✕</button>
+      </div>
+    </div>`;
+  }
+
+  async function deleteEdgeFromRow(rowEl) {
+    const from = rowEl.dataset.from;
+    const to = rowEl.dataset.to;
+    const kind = rowEl.dataset.kind;
+    if (!from || !to || !kind) return;
+    if (!confirm(`Delete edge ${from} —[${kind}]→ ${to}?\n\nCannot be undone.`)) {
+      return;
+    }
+    try {
+      await API.deleteEdge(State.mt, from, kind, to);
+      await refresh();
+      renderPanel();
+    } catch (e) {
+      let msg = e.message || String(e);
+      if (e.status === 401) msg = 'Authentication required. Pass ?u=USER&p=PASS in the URL.';
+      else if (e.status === 403) msg = `Forbidden: you don't have write access to "${State.mt}".`;
+      else if (e.status === 404) msg = `Edge not found.`;
+      alert(`Delete failed: ${msg}`);
+    }
+  }
+
+  function openEdgePropsEditor(rowEl) {
+    const from = rowEl.dataset.from;
+    const to = rowEl.dataset.to;
+    const kind = rowEl.dataset.kind;
+    let props = {};
+    try {
+      props = JSON.parse(decodeURIComponent(rowEl.dataset.props || '{}'));
+    } catch (_) { /* ignore malformed payload, start empty */ }
+    EdgeModal.openForEdit({ from, to, kind, props });
+  }
+
+  // Parse a key:value-per-line textarea body into a flat props object.
+  // Numeric-looking values become Number; everything else stays as a string.
+  // Lines without a colon, or with empty keys, are skipped silently.
+  function parseEdgePropsText(text) {
+    const out = {};
+    const lines = String(text || '').split(/\r?\n/);
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      const idx = line.indexOf(':');
+      if (idx < 0) continue;
+      const k = line.slice(0, idx).trim();
+      const vRaw = line.slice(idx + 1).trim();
+      if (!k) continue;
+      let v = vRaw;
+      if (vRaw !== '' && !isNaN(Number(vRaw)) && /^-?[0-9]+(\.[0-9]+)?$/.test(vRaw)) {
+        v = Number(vRaw);
+      }
+      out[k] = v;
+    }
+    return out;
+  }
+
+  function formatEdgePropsText(props) {
+    if (!props) return '';
+    return Object.entries(props).map(([k, v]) => `${k}: ${v}`).join('\n');
   }
 
   function updateGoalChip() {
@@ -984,6 +1175,147 @@
   };
 
   // ============================================================
+  // Edge modal (create new edge OR edit existing edge's props)
+  // ============================================================
+
+  // Edge kinds that the core's valid_edge_kind/1 accepts.
+  const EDGE_KINDS = [
+    'depends', 'provides', 'eases', 'allen',
+    'attacks', 'supports', 'contingent_on', 'subsumes', 'prefer',
+  ];
+
+  const EdgeModal = {
+    // mode is 'create' or 'edit'
+    _mode: 'create',
+    _editKey: null,   // {from, kind, to} for edit mode
+
+    isOpen() {
+      const bd = document.getElementById('edge-modal-backdrop');
+      return bd && bd.style.display !== 'none';
+    },
+
+    openForCreate() {
+      this._mode = 'create';
+      this._editKey = null;
+      const bd = document.getElementById('edge-modal-backdrop');
+      if (!bd) return;
+      document.getElementById('edge-modal-title').textContent = 'Add edge';
+      document.getElementById('edge-modal-submit').textContent = 'Add edge';
+      // Prefill from = current selection if any
+      document.getElementById('ef-from').value = State.selectedId || '';
+      document.getElementById('ef-from').disabled = false;
+      document.getElementById('ef-kind').value = 'depends';
+      document.getElementById('ef-kind').disabled = false;
+      document.getElementById('ef-to').value = '';
+      document.getElementById('ef-to').disabled = false;
+      document.getElementById('ef-props').value = '';
+      const err = document.getElementById('ef-error');
+      err.style.display = 'none';
+      err.textContent = '';
+      bd.style.display = 'flex';
+      setTimeout(() => {
+        const which = State.selectedId ? document.getElementById('ef-to')
+                                       : document.getElementById('ef-from');
+        which.focus();
+      }, 50);
+    },
+
+    openForEdit({ from, kind, to, props }) {
+      this._mode = 'edit';
+      this._editKey = { from, kind, to };
+      const bd = document.getElementById('edge-modal-backdrop');
+      if (!bd) return;
+      document.getElementById('edge-modal-title').textContent = 'Edit edge props';
+      document.getElementById('edge-modal-submit').textContent = 'Save';
+      document.getElementById('ef-from').value = from;
+      document.getElementById('ef-from').disabled = true;
+      document.getElementById('ef-kind').value = kind;
+      document.getElementById('ef-kind').disabled = true;
+      document.getElementById('ef-to').value = to;
+      document.getElementById('ef-to').disabled = true;
+      document.getElementById('ef-props').value = formatEdgePropsText(props);
+      const err = document.getElementById('ef-error');
+      err.style.display = 'none';
+      err.textContent = '';
+      bd.style.display = 'flex';
+      setTimeout(() => document.getElementById('ef-props').focus(), 50);
+    },
+
+    close() {
+      const bd = document.getElementById('edge-modal-backdrop');
+      if (bd) bd.style.display = 'none';
+      // Re-enable disabled fields for next open
+      document.getElementById('ef-from').disabled = false;
+      document.getElementById('ef-kind').disabled = false;
+      document.getElementById('ef-to').disabled = false;
+    },
+
+    showError(msg) {
+      const err = document.getElementById('ef-error');
+      err.textContent = msg;
+      err.style.display = 'block';
+    },
+
+    validate() {
+      if (this._mode === 'edit') {
+        return { ok: true, props: parseEdgePropsText(document.getElementById('ef-props').value) };
+      }
+      const from = document.getElementById('ef-from').value.trim();
+      const kind = document.getElementById('ef-kind').value;
+      const to   = document.getElementById('ef-to').value.trim();
+      const propsText = document.getElementById('ef-props').value;
+      if (!from) return { ok: false, msg: 'From task ID is required.' };
+      if (!to)   return { ok: false, msg: 'To task ID is required.' };
+      if (!/^[a-z][a-z0-9_]*$/.test(from)) {
+        return { ok: false, msg: 'From ID must be a lowercase atom.' };
+      }
+      if (!/^[a-z][a-z0-9_]*$/.test(to)) {
+        return { ok: false, msg: 'To ID must be a lowercase atom.' };
+      }
+      if (from === to) {
+        return { ok: false, msg: 'Self-loops are not supported (from and to are the same).' };
+      }
+      if (!EDGE_KINDS.includes(kind)) {
+        return { ok: false, msg: `Unknown edge kind: ${kind}.` };
+      }
+      const props = parseEdgePropsText(propsText);
+      return { ok: true, payload: { from, kind, to, props } };
+    },
+
+    async submit() {
+      const v = this.validate();
+      if (!v.ok) { this.showError(v.msg); return; }
+
+      const submitBtn = document.getElementById('edge-modal-submit');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = (this._mode === 'edit') ? 'Saving…' : 'Adding…';
+
+      try {
+        if (this._mode === 'edit') {
+          const { from, kind, to } = this._editKey;
+          await API.updateEdgeProps(State.mt, from, kind, to, v.props);
+        } else {
+          await API.createEdge({ mt: State.mt, ...v.payload });
+        }
+        this.close();
+        await refresh();
+        renderPanel();
+      } catch (e) {
+        let msg = e.message || String(e);
+        if (e.status === 401) msg = 'Authentication required. Pass ?u=USER&p=PASS in the URL.';
+        else if (e.status === 403) msg = `Forbidden: you don't have write access to "${State.mt}".`;
+        else if (e.status === 404) msg = `Endpoint task or edge not found.`;
+        else if (e.status === 409) msg = `That edge already exists.`;
+        this.showError(msg);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+      }
+    },
+  };
+
+  // ============================================================
   // Wire up
   // ============================================================
 
@@ -1036,18 +1368,58 @@
       });
     });
 
+    // Edge modal triggers
+    const newEdgeBtn = document.getElementById('new-edge-btn');
+    if (newEdgeBtn) {
+      newEdgeBtn.addEventListener('click', () => EdgeModal.openForCreate());
+    }
+    document.getElementById('edge-modal-close').addEventListener('click', () => {
+      EdgeModal.close();
+    });
+    document.getElementById('edge-modal-cancel').addEventListener('click', () => {
+      EdgeModal.close();
+    });
+    document.getElementById('edge-modal-submit').addEventListener('click', () => {
+      EdgeModal.submit();
+    });
+    document.getElementById('edge-modal-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'edge-modal-backdrop') EdgeModal.close();
+    });
+    // Enter on simple inputs submits; Escape on any field closes.
+    // The props textarea allows newlines normally; only Cmd/Ctrl+Enter submits there.
+    ['ef-from', 'ef-kind', 'ef-to'].forEach(fid => {
+      const el = document.getElementById(fid);
+      if (!el) return;
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); EdgeModal.submit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); EdgeModal.close(); }
+      });
+    });
+    const propsEl = document.getElementById('ef-props');
+    if (propsEl) {
+      propsEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); EdgeModal.close(); }
+        else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault(); EdgeModal.submit();
+        }
+      });
+    }
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      // If the modal is open, only handle Escape; let the form take everything else.
+      // If either modal is open, only handle Escape; let the form take everything else.
       if (NewTaskModal.isOpen()) {
-        if (e.key === 'Escape') {
-          NewTaskModal.close();
-        }
+        if (e.key === 'Escape') NewTaskModal.close();
         return;
       }
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (EdgeModal.isOpen()) {
+        if (e.key === 'Escape') EdgeModal.close();
+        return;
+      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'r') refresh();
       else if (e.key === 'n') { e.preventDefault(); NewTaskModal.open(); }
+      else if (e.key === 'e') { e.preventDefault(); EdgeModal.openForCreate(); }
       else if (e.key === 'Escape') {
         State.selectedId = null;
         State.goalId = null;

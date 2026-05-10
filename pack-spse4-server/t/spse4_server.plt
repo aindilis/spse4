@@ -91,7 +91,7 @@ test(health_endpoint) :-
           json_read_dict(Stream, Dict),
           close(Stream),
           assertion(Dict.status == "ok"),
-          assertion(Dict.version == "0.2.1")
+          assertion(Dict.version == "0.2.2")
         ),
         teardown_server_(Port)).
 
@@ -579,6 +579,234 @@ test(patch_status_fires_broadcast) :-
           assertion(memberchk(task_property_changed(patch_mt_bc, t1, status, in_progress), Heard)),
           unlisten(patch_token),
           spse4_user_remove(mark)
+        ),
+        teardown_server_(Port)).
+
+% ---------------------------------------------------------------
+%   /edges REST mutation endpoints (added v0.2.2)
+% ---------------------------------------------------------------
+
+test(post_edges_anon_denied) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_anon),
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_anon, from: t1, kind: provides, to: t2},
+                     _Reply, Code, []),
+          assertion(Code == 401),
+          \+ spse4_core:edge(edge_mt_anon, t1, provides, t2)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_creates_with_auth) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_post),
+          spse4_user_remove(nora),
+          spse4_user_add(nora, "ppp", [write([edge_mt_post])]),
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_post, from: t1, kind: provides, to: t3,
+                       props: _{weight: 5}},
+                     Reply, Code,
+                     [ authorization(basic(nora, "ppp")) ]),
+          assertion(Code == 201),
+          assertion(Reply.ok == true),
+          assertion(spse4_core:edge(edge_mt_post, t1, provides, t3)),
+          spse4_core:edge_property(edge_mt_post, t1, provides, t3, Pairs),
+          assertion(memberchk(weight=5, Pairs)),
+          spse4_user_remove(nora)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_409_on_duplicate) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_dup),
+          spse4_user_remove(opal),
+          spse4_user_add(opal, "ppp", [write([edge_mt_dup])]),
+          % seed_graph_ already creates t2-depends-t1.
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_dup, from: t2, kind: depends, to: t1},
+                     _Reply, Code,
+                     [ authorization(basic(opal, "ppp")) ]),
+          assertion(Code == 409),
+          spse4_user_remove(opal)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_404_on_missing_endpoint) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_nofrom),
+          spse4_user_remove(pia),
+          spse4_user_add(pia, "ppp", [write([edge_mt_nofrom])]),
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_nofrom, from: nope, kind: depends, to: t1},
+                     _Reply, Code,
+                     [ authorization(basic(pia, "ppp")) ]),
+          assertion(Code == 404),
+          spse4_user_remove(pia)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_400_on_unknown_kind) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_badkind),
+          spse4_user_remove(quin),
+          spse4_user_add(quin, "ppp", [write([edge_mt_badkind])]),
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_badkind, from: t1, kind: not_a_kind, to: t2},
+                     _Reply, Code,
+                     [ authorization(basic(quin, "ppp")) ]),
+          assertion(Code == 400),
+          spse4_user_remove(quin)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_acl_denies_wrong_mt) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        with_strict_mode_(
+          ( seed_graph_(edge_mt_acl),
+            spse4_user_remove(rae),
+            spse4_user_add(rae, "ppp", [write([other_mt])]),
+            format(string(URL), "http://localhost:~w/edges", [Port]),
+            post_json_(URL,
+                       _{mt: edge_mt_acl, from: t1, kind: provides, to: t2},
+                       _Reply, Code,
+                       [ authorization(basic(rae, "ppp")) ]),
+            assertion(Code == 403),
+            \+ spse4_core:edge(edge_mt_acl, t1, provides, t2),
+            spse4_user_remove(rae)
+          )),
+        teardown_server_(Port)).
+
+test(delete_edges_removes_with_auth) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_del),
+          spse4_user_remove(sami),
+          spse4_user_add(sami, "ppp", [write([edge_mt_del])]),
+          % seed_graph_ creates t2-depends-t1; delete it.
+          format(string(URL),
+                 "http://localhost:~w/edges/edge_mt_del/t2/depends/t1", [Port]),
+          delete_(URL, _Reply, Code,
+                  [ authorization(basic(sami, "ppp")) ]),
+          assertion(Code == 200),
+          \+ spse4_core:edge(edge_mt_del, t2, depends, t1),
+          spse4_user_remove(sami)
+        ),
+        teardown_server_(Port)).
+
+test(delete_edges_404_on_missing) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_del404),
+          spse4_user_remove(tara),
+          spse4_user_add(tara, "ppp", [write([edge_mt_del404])]),
+          format(string(URL),
+                 "http://localhost:~w/edges/edge_mt_del404/t1/provides/t2",
+                 [Port]),
+          delete_(URL, _Reply, Code,
+                  [ authorization(basic(tara, "ppp")) ]),
+          assertion(Code == 404),
+          spse4_user_remove(tara)
+        ),
+        teardown_server_(Port)).
+
+test(patch_edges_replaces_props) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_patch),
+          spse4_user_remove(uma),
+          spse4_user_add(uma, "ppp", [write([edge_mt_patch])]),
+          % Add an extra prop to the seeded t2-depends-t1 edge to start.
+          spse4_core:edge_set_properties(edge_mt_patch, t2, depends, t1,
+                                         [weight=1, note="initial"]),
+          format(string(URL),
+                 "http://localhost:~w/edges/edge_mt_patch/t2/depends/t1",
+                 [Port]),
+          % JSON string values round-trip as Prolog strings, not atoms,
+          % so the asserted prop is urgency="high" (not urgency=high).
+          patch_json_(URL,
+                      _{props: _{weight: 9, urgency: "high"}},
+                      Reply, Code,
+                      [ authorization(basic(uma, "ppp")) ]),
+          assertion(Code == 200),
+          assertion(Reply.ok == true),
+          spse4_core:edge_property(edge_mt_patch, t2, depends, t1, Pairs),
+          msort(Pairs, Sorted),
+          msort([urgency="high", weight=9], Sorted),
+          spse4_user_remove(uma)
+        ),
+        teardown_server_(Port)).
+
+test(patch_edges_404_on_missing) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_patch404),
+          spse4_user_remove(vic),
+          spse4_user_add(vic, "ppp", [write([edge_mt_patch404])]),
+          format(string(URL),
+                 "http://localhost:~w/edges/edge_mt_patch404/t1/provides/t2",
+                 [Port]),
+          patch_json_(URL,
+                      _{props: _{weight: 1}},
+                      _Reply, Code,
+                      [ authorization(basic(vic, "ppp")) ]),
+          assertion(Code == 404),
+          spse4_user_remove(vic)
+        ),
+        teardown_server_(Port)).
+
+test(post_edges_fires_broadcast) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_bc),
+          spse4_user_remove(wade),
+          spse4_user_add(wade, "ppp", [write([edge_mt_bc])]),
+          retractall(heard_(_)),
+          listen(edge_bc_token, spse4(E), assertz(heard_(E))),
+          format(string(URL), "http://localhost:~w/edges", [Port]),
+          post_json_(URL,
+                     _{mt: edge_mt_bc, from: t1, kind: provides, to: t3},
+                     _R, _Code,
+                     [ authorization(basic(wade, "ppp")) ]),
+          sleep(0.05),
+          findall(E, heard_(E), Heard),
+          assertion(memberchk(edge_added(edge_mt_bc, t1, provides, t3, _), Heard)),
+          unlisten(edge_bc_token),
+          spse4_user_remove(wade)
+        ),
+        teardown_server_(Port)).
+
+test(patch_edges_fires_property_changed_broadcast) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(edge_mt_pcbc),
+          spse4_user_remove(xan),
+          spse4_user_add(xan, "ppp", [write([edge_mt_pcbc])]),
+          retractall(heard_(_)),
+          listen(edge_pc_token, spse4(E), assertz(heard_(E))),
+          format(string(URL),
+                 "http://localhost:~w/edges/edge_mt_pcbc/t2/depends/t1",
+                 [Port]),
+          patch_json_(URL,
+                      _{props: _{weight: 7}},
+                      _R, _Code,
+                      [ authorization(basic(xan, "ppp")) ]),
+          sleep(0.05),
+          findall(E, heard_(E), Heard),
+          assertion(memberchk(edge_property_changed(edge_mt_pcbc, t2, depends, t1, [weight=7]),
+                              Heard)),
+          unlisten(edge_pc_token),
+          spse4_user_remove(xan)
         ),
         teardown_server_(Port)).
 

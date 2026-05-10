@@ -34,6 +34,7 @@
         </select>
         <button id="refresh-btn" title="Refresh (r)">↻</button>
         <button id="new-task-btn" title="Add task (n)">+ Task</button>
+        <button id="new-edge-btn" title="Add edge (e)">+ Edge</button>
       </div>
 
       <div class="conn-status">
@@ -174,6 +175,52 @@
         <div class="modal-footer">
           <button id="modal-cancel" class="btn-secondary">Cancel</button>
           <button id="modal-submit" class="btn-primary">Add task</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="edge-modal-backdrop" style="display:none">
+      <div class="modal" id="edge-modal" role="dialog" aria-labelledby="edge-modal-title">
+        <div class="modal-header">
+          <div class="modal-title" id="edge-modal-title">Add edge</div>
+          <button class="modal-close" id="edge-modal-close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row form-row-2col">
+            <div>
+              <label for="ef-from">From</label>
+              <input type="text" id="ef-from" placeholder="source task ID" autocomplete="off">
+            </div>
+            <div>
+              <label for="ef-to">To</label>
+              <input type="text" id="ef-to" placeholder="target task ID" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="ef-kind">Kind</label>
+            <select id="ef-kind">
+              <option value="depends" selected>depends</option>
+              <option value="provides">provides</option>
+              <option value="eases">eases</option>
+              <option value="allen">allen</option>
+              <option value="attacks">attacks</option>
+              <option value="supports">supports</option>
+              <option value="contingent_on">contingent_on</option>
+              <option value="subsumes">subsumes</option>
+              <option value="prefer">prefer</option>
+            </select>
+            <div class="form-hint">edge semantics; see core docs for what each kind means</div>
+          </div>
+          <div class="form-row">
+            <label for="ef-props">Properties</label>
+            <textarea id="ef-props" rows="4" placeholder="key: value&#10;weight: 1.0&#10;rationale: blocks deployment" autocomplete="off"></textarea>
+            <div class="form-hint">one <code>key: value</code> pair per line; numeric values are stored as numbers, everything else as strings; blank lines and lines without a colon are ignored</div>
+          </div>
+          <div class="form-error" id="ef-error" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="edge-modal-cancel" class="btn-secondary">Cancel</button>
+          <button id="edge-modal-submit" class="btn-primary">Add edge</button>
         </div>
       </div>
     </div>
