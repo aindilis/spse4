@@ -544,6 +544,34 @@ html, body {
 .status-pill.status-rejected    { background: var(--s-rejected-bg);    color: var(--s-rejected-fg);    border-color: var(--s-rejected-br);    }
 .status-pill.status-ridiculous  { background: var(--s-ridiculous-bg);  color: var(--s-ridiculous-fg);  border-color: var(--s-ridiculous-br);  }
 
+.status-pill.clickable {
+  cursor: pointer;
+  transition: filter 0.1s, transform 0.1s;
+}
+.status-pill.clickable:hover {
+  filter: brightness(0.97);
+  transform: translateY(-0.5px);
+}
+.status-pill.editing {
+  padding: 0;
+  background: var(--bg-1);
+  border-color: var(--bd-2);
+}
+.status-select {
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-0);
+  cursor: pointer;
+  outline: none;
+  border-radius: var(--radius-pill);
+}
+.status-select:focus {
+  outline: none;
+}
+
 .detail-label {
   color: var(--fg-1);
   margin-bottom: 16px;

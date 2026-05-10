@@ -111,6 +111,30 @@
       }
       return parsed;
     },
+
+    async updateTaskStatus(mt, id, newStatus) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (State.auth) {
+        const b = btoa(State.auth.user + ':' + State.auth.password);
+        headers['Authorization'] = 'Basic ' + b;
+      }
+      const url = `${State.baseUrl}/tasks/${encodeURIComponent(mt)}/${encodeURIComponent(id)}`;
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { /* ignore */ }
+      if (!res.ok) {
+        const msg = (parsed && parsed.message) || `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return parsed;
+    },
   };
 
   // ============================================================
@@ -492,6 +516,11 @@
   }
 
   function renderPanel() {
+    // If a status-edit is currently mounted in the panel, don't
+    // clobber its dropdown with a re-render.  The edit's finish
+    // handler will trigger renderPanel itself when done.
+    if (_statusEditing) return;
+
     const body = document.getElementById('detail-body');
     const empty = document.getElementById('detail-empty');
 
@@ -517,7 +546,9 @@
     document.getElementById('d-id').textContent = d.id;
     const pill = document.getElementById('d-status');
     pill.textContent = d.status;
-    pill.className = 'status-pill status-' + d.status;
+    pill.className = 'status-pill status-' + d.status + ' clickable';
+    pill.title = 'Click to change status';
+    pill.onclick = () => beginStatusEdit(d.id, d.status);
     document.getElementById('d-label').textContent = d.label || '';
 
     // Meta
@@ -629,6 +660,95 @@
           deleteSelectedTask();
         }
       };
+    });
+  }
+
+  // ============================================================
+  // Mutation: inline status edit on the side-panel pill
+  // ============================================================
+
+  // The full vocabulary the core's validate_property_/2 accepts for status:
+  const STATUS_VALUES = [
+    'open', 'in_progress', 'completed', 'cancelled',
+    'deleted', 'skipped', 'obsoleted', 'rejected',
+    'showstopper', 'ridiculous', 'habitual',
+  ];
+
+  // Track per-render edit lock so we can prevent re-render-while-editing
+  let _statusEditing = false;
+
+  function beginStatusEdit(taskId, currentStatus) {
+    if (_statusEditing) return;
+    _statusEditing = true;
+
+    const pill = document.getElementById('d-status');
+    if (!pill) { _statusEditing = false; return; }
+
+    // Replace the pill's content with an inline <select>.  We keep the
+    // pill element itself so its position in the layout is preserved;
+    // we just swap the children.
+    pill.innerHTML = '';
+    pill.classList.remove('clickable');
+    pill.classList.add('editing');
+    pill.title = '';
+    pill.onclick = null;
+
+    const sel = document.createElement('select');
+    sel.className = 'status-select';
+    for (const s of STATUS_VALUES) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      if (s === currentStatus) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    pill.appendChild(sel);
+    sel.focus();
+
+    let committed = false;
+
+    const finish = async (commit) => {
+      if (committed) return;
+      committed = true;
+      const newStatus = sel.value;
+      _statusEditing = false;
+
+      if (!commit || newStatus === currentStatus) {
+        // Restore display without round-tripping the server.
+        renderPanel();
+        return;
+      }
+
+      // Optimistic UI: show the new status immediately.
+      pill.textContent = newStatus;
+      pill.className = 'status-pill status-' + newStatus;
+
+      try {
+        await API.updateTaskStatus(State.mt, taskId, newStatus);
+        // Refresh to pull authoritative state and re-trigger CP recalc.
+        await refresh();
+        renderPanel();
+      } catch (e) {
+        // Roll back optimistic UI.
+        let msg = e.message || String(e);
+        if (e.status === 401) msg = 'Authentication required. Pass ?u=USER&p=PASS in the URL.';
+        else if (e.status === 403) msg = `Forbidden: you don't have write access to "${State.mt}".`;
+        else if (e.status === 404) msg = `Task "${taskId}" not found.`;
+        alert(`Status change failed: ${msg}`);
+        renderPanel();
+      }
+    };
+
+    sel.addEventListener('change', () => finish(true));
+    sel.addEventListener('blur', () => finish(true));
+    sel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      }
     });
   }
 

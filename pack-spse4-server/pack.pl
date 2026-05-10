@@ -1,5 +1,5 @@
 name(spse4_server).
-version('0.2.0').
+version('0.2.1').
 title('SPSE4 server: HTTP + Pengines + broadcast fanout + per-mt ACL').
 keywords([server, pengines, http, websocket, broadcast, frkcsa, spse4]).
 author('Andrew Dougherty', 'adougher9@yahoo.com').

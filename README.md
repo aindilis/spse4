@@ -29,9 +29,13 @@ as a directed graph, with the critical path to "submit autopackager to FRKCSA pr
   a task created in one browser tab appears in another within one poll
   cycle. Adds 15 new PlUnit tests. Also fixes a latent v0.1 bug in
   `task_retract/2`'s edge-property cleanup.
+- **v0.2.1**: status-edit. Click the status pill in the side panel to
+  change a task's status inline; `PATCH /tasks/<mt>/<id>` server
+  endpoint with the same auth/ACL story as POST/DELETE. Adds 7 PlUnit
+  tests. Closes the basic CRUD story.
 - **v0.2.x in flight**: WebSocket push (replacing the 3-second poll),
-  `spse4-mode.el` Emacs mode using `pengine.el`, multi-instance
-  broadcast demo recording.
+  edge editing UI, `spse4-mode.el` Emacs mode using `pengine.el`,
+  multi-instance broadcast demo recording.
 
 See `CHANGES.md` for the per-version changelog.
 

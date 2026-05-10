@@ -321,10 +321,14 @@ acl_allows_([_|R], Mode, Mt) :- acl_allows_(R, Mode, Mt).
                 [ method(get) ]).
 :- http_handler(root('events'),    events_handler,
                 [ method(get) ]).
-:- http_handler(root('tasks'),     tasks_post_handler,
-                [ method(post) ]).
-:- http_handler(root(tasks),       tasks_delete_handler,
-                [ method(delete), prefix ]).
+% NOTE on /tasks routing: SWI's http_dispatch does not handle two
+% `prefix` handlers at the same path with different `method(_)`
+% filters cleanly — registration order ends up shadowing one of
+% them in opaque ways (verified empirically).  We register a single
+% prefix handler at root(tasks) that dispatches on method
+% internally to the per-method clauses below.
+:- http_handler(root(tasks), tasks_dispatch_,
+                [ method(*), prefix ]).
 
 % Static file handler, installed lazily on start if a client_dir was
 % given.  We don't install it at file load time because the path may
@@ -366,6 +370,7 @@ root_api_landing_(_Request) :-
     format("  GET    /events[?since=<epoch>]~n"),
     format("  POST   /tasks         body: {mt, id, label, status[, props]}  (auth required)~n"),
     format("  DELETE /tasks/<mt>/<id>                                        (auth required)~n"),
+    format("  PATCH  /tasks/<mt>/<id> body: {status: <new_status>}           (auth required)~n"),
     format("~n"),
     format("No web client is configured on this server.  To enable~n"),
     format("the Cytoscape UI, start with client_dir(Dir) option:~n"),
@@ -380,7 +385,7 @@ health_handler(_Request) :-
     findall(P, server_port_(P), Ports),
     aggregate_all(count, user_record_(_, _, _), NUsers),
     reply_json_dict(_{ status: ok,
-                       version: "0.2.0",
+                       version: "0.2.1",
                        ports: Ports,
                        users: NUsers
                      }).
@@ -695,23 +700,55 @@ trim_recent_events_ :-
 %     403 Forbidden     if user lacks write on Mt
 %
 %   DELETE /tasks/<mt>/<id>
-%     204 No Content    on success
+%     200 OK            on success
 %     401, 403          as above
 %     404 Not Found     if task does not exist
 %
-%   Both endpoints fire pack-spse4-core broadcast events as a
+%   PATCH /tasks/<mt>/<id>
+%     body: { "status": "<new_status>" }
+%     200 OK            on success
+%     400, 401, 403, 404
+%
+%   All endpoints fire pack-spse4-core broadcast events as a
 %   side-effect, so the relay propagates to live pengines and the
 %   /events poll endpoint sees them on the next call.
 
+%   tasks_dispatch_(+Request) is det.
+%
+%   Single prefix handler that routes by HTTP method.  See note at
+%   the http_handler/3 declaration for why we don't use multiple
+%   per-method handlers.
+tasks_dispatch_(Request) :-
+    memberchk(method(M), Request),
+    (   M == post   -> tasks_post_handler(Request)
+    ;   M == delete -> tasks_delete_handler(Request)
+    ;   M == patch  -> tasks_patch_handler(Request)
+    ;   reply_json_dict(_{ error: method_not_allowed,
+                           message: "method not allowed; use POST, DELETE, or PATCH" },
+                        [status(405)])
+    ).
+
+%   Implementation note on the catch+sentinel pattern below:
+%   `library(http/http_dispatch)` interprets a clause failure as
+%   "handler error" and writes a 500 page on top of any response
+%   the handler may already have streamed.  We therefore must NOT
+%   `fail` after writing a structured 4xx reply.  Instead, each
+%   error-replying catch throws a `reply_already_sent` sentinel,
+%   which the outer wrapper catches and treats as success.
+
 tasks_post_handler(Request) :-
+    catch( do_tasks_post_(Request),
+           reply_already_sent,
+           true ).
+
+do_tasks_post_(Request) :-
     http_authenticate_optional_(Request, User),
     catch( http_read_json_dict(Request, Body, []),
            _,
            ( reply_json_dict(_{ error: bad_request,
                                 message: "request body must be JSON" },
                              [status(400)]),
-             fail ) ),
-    !,
+             throw(reply_already_sent) ) ),
     (   _{ mt: MtAtomic, id: IdAtomic, label: Label, status: StatusAtomic } :< Body
     ->  to_atom_(MtAtomic, Mt),
         to_atom_(IdAtomic, Id),
@@ -729,8 +766,7 @@ tasks_post_handler(Request) :-
                    ( format(atom(Msg), "create failed: ~q", [E]),
                      reply_json_dict(_{ error: bad_request, message: Msg },
                                      [status(400)]),
-                     fail ) ),
-            !,
+                     throw(reply_already_sent) ) ),
             reply_json_dict(_{ ok: true, mt: Mt, id: Id },
                             [status(201)])
         ;   reply_forbidden_(User, write, Mt)
@@ -739,37 +775,96 @@ tasks_post_handler(Request) :-
                            message: "missing required fields: mt, id, label, status" },
                         [status(400)])
     ).
-tasks_post_handler(_Request).
 
 tasks_delete_handler(Request) :-
+    catch( do_tasks_delete_(Request),
+           reply_already_sent,
+           true ).
+
+do_tasks_delete_(Request) :-
     http_authenticate_optional_(Request, User),
-    memberchk(path_info(PathInfo), Request),
-    parse_task_path_(PathInfo, Mt, Id),
-    !,
-    (   User == ''
-    ->  reply_json_dict(_{ error: unauthorized,
-                           message: "authentication required to delete tasks" },
-                        [status(401)])
-    ;   spse4_acl_allows(User, write, Mt)
-    ->  (   spse4_core:task_exists(Mt, Id)
-        ->  catch( spse4_core:task_retract(Mt, Id),
-                   E,
-                   ( format(atom(Msg), "delete failed: ~q", [E]),
-                     reply_json_dict(_{ error: bad_request, message: Msg },
-                                     [status(400)]),
-                     fail ) ),
-            !,
-            reply_json_dict(_{ ok: true, mt: Mt, id: Id })
-        ;   format(atom(M), "task ~w not found in mt ~w", [Id, Mt]),
-              reply_json_dict(_{ error: not_found, message: M },
-                              [status(404)])
+    (   memberchk(path_info(PathInfo), Request),
+        parse_task_path_(PathInfo, Mt, Id)
+    ->  (   User == ''
+        ->  reply_json_dict(_{ error: unauthorized,
+                               message: "authentication required to delete tasks" },
+                            [status(401)])
+        ;   spse4_acl_allows(User, write, Mt)
+        ->  (   spse4_core:task_exists(Mt, Id)
+            ->  catch( spse4_core:task_retract(Mt, Id),
+                       E,
+                       ( format(atom(Msg), "delete failed: ~q", [E]),
+                         reply_json_dict(_{ error: bad_request, message: Msg },
+                                         [status(400)]),
+                         throw(reply_already_sent) ) ),
+                reply_json_dict(_{ ok: true, mt: Mt, id: Id })
+            ;   format(atom(M), "task ~w not found in mt ~w", [Id, Mt]),
+                reply_json_dict(_{ error: not_found, message: M },
+                                [status(404)])
+            )
+        ;   reply_forbidden_(User, write, Mt)
         )
-    ;   reply_forbidden_(User, write, Mt)
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "expected DELETE /tasks/<mt>/<id>" },
+                        [status(400)])
     ).
-tasks_delete_handler(_Request) :-
-    reply_json_dict(_{ error: bad_request,
-                       message: "expected DELETE /tasks/<mt>/<id>" },
-                    [status(400)]).
+
+%   PATCH /tasks/<mt>/<id>
+%
+%   Updates a task's mutable properties.  Currently supports the
+%   `status` field; future extensions may add `label`, etc.
+%
+%   body: { "status": "<new_status>" }
+%   200   on success, body { ok: true, mt, id, status }
+%   400   if body malformed or status invalid
+%   401   if no auth
+%   403   if user lacks write on Mt
+%   404   if task does not exist
+
+tasks_patch_handler(Request) :-
+    catch( do_tasks_patch_(Request),
+           reply_already_sent,
+           true ).
+
+do_tasks_patch_(Request) :-
+    http_authenticate_optional_(Request, User),
+    (   memberchk(path_info(PathInfo), Request),
+        parse_task_path_(PathInfo, Mt, Id)
+    ->  catch( http_read_json_dict(Request, Body, []),
+               _,
+               ( reply_json_dict(_{ error: bad_request,
+                                    message: "request body must be JSON" },
+                                 [status(400)]),
+                 throw(reply_already_sent) ) ),
+        (   get_dict(status, Body, StatusAtomic)
+        ->  to_atom_(StatusAtomic, Status),
+            (   User == ''
+            ->  reply_json_dict(_{ error: unauthorized,
+                                   message: "authentication required to modify tasks" },
+                                [status(401)])
+            ;   spse4_acl_allows(User, write, Mt)
+            ->  (   spse4_core:task_exists(Mt, Id)
+                ->  catch( spse4_core:task_set_property(Mt, Id, status, Status),
+                           E,
+                           ( format(atom(Msg), "patch failed: ~q", [E]),
+                             reply_json_dict(_{ error: bad_request, message: Msg },
+                                             [status(400)]),
+                             throw(reply_already_sent) ) ),
+                    reply_json_dict(_{ ok: true, mt: Mt, id: Id, status: Status })
+                ;   format(atom(M), "task ~w not found in mt ~w", [Id, Mt]),
+                    reply_json_dict(_{ error: not_found, message: M },
+                                    [status(404)])
+                )
+            ;   reply_forbidden_(User, write, Mt)
+            )
+        ;   reply_json_dict(_{ error: bad_request,
+                               message: "PATCH body must include a 'status' field" },
+                            [status(400)])
+        )
+    ;   reply_json_dict(_{ error: bad_request,
+                           message: "expected PATCH /tasks/<mt>/<id>" },
+                        [status(400)])
+    ).
 
 %   parse_task_path_(+PathInfo, -Mt, -Id) is semidet.
 %

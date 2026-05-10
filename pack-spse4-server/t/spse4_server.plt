@@ -91,7 +91,7 @@ test(health_endpoint) :-
           json_read_dict(Stream, Dict),
           close(Stream),
           assertion(Dict.status == "ok"),
-          assertion(Dict.version == "0.2.0")
+          assertion(Dict.version == "0.2.1")
         ),
         teardown_server_(Port)).
 
@@ -305,6 +305,23 @@ delete_(URL, ReplyDict, Code, AuthOpts) :-
           close(S) )
     ).
 
+%   patch_json_(+URL, +Dict, -ReplyDict, -Code, +AuthOpts) is det.
+patch_json_(URL, Dict, ReplyDict, Code, AuthOpts) :-
+    with_output_to(string(BodyStr), json_write_dict(current_output, Dict)),
+    catch( http_open(URL, S,
+                     [ method(patch),
+                       post(string('application/json', BodyStr)),
+                       status_code(Code)
+                     | AuthOpts ]),
+           Err,
+           ( ReplyDict = error(Err), Code = 0, S = (-) ) ),
+    ( S == (-)
+    -> true
+    ;   ( catch( ( json_read_dict(S, ReplyDict) ),
+                 _, ReplyDict = _{} ),
+          close(S) )
+    ).
+
 test(post_tasks_creates_in_permissive_anon_denied) :-
     setup_call_cleanup(
         setup_server_(Port),
@@ -428,6 +445,140 @@ test(post_then_delete_round_trip_fires_broadcast) :-
           assertion(memberchk(task_removed(rest_mt_rt, rt1), Heard2)),
           unlisten(rt_token),
           spse4_user_remove(gail)
+        ),
+        teardown_server_(Port)).
+
+% ---------------------------------------------------------------
+%   PATCH /tasks/<mt>/<id> — status edit (added v0.2.1)
+% ---------------------------------------------------------------
+
+test(patch_status_anon_denied) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_anon),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_anon/t1", [Port]),
+          patch_json_(URL,
+                      _{status: completed},
+                      _Reply, Code, []),
+          assertion(Code == 401)
+        ),
+        teardown_server_(Port)).
+
+test(patch_status_changes_with_auth) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_a),
+          spse4_user_remove(hank),
+          spse4_user_add(hank, "ppp", [write([patch_mt_a])]),
+          % t1 starts as 'open' from seed_graph_
+          assertion(spse4_core:task_property(patch_mt_a, t1, status, open)),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_a/t1", [Port]),
+          patch_json_(URL,
+                      _{status: completed},
+                      Reply, Code,
+                      [ authorization(basic(hank, "ppp")) ]),
+          assertion(Code == 200),
+          assertion(Reply.ok == true),
+          assertion(Reply.status == "completed"),
+          assertion(spse4_core:task_property(patch_mt_a, t1, status, completed)),
+          spse4_user_remove(hank)
+        ),
+        teardown_server_(Port)).
+
+test(patch_status_acl_denies_wrong_mt) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        with_strict_mode_(
+          ( seed_graph_(patch_mt_acl),
+            spse4_user_remove(ivy),
+            spse4_user_add(ivy, "ppp", [write([other_mt])]),
+            format(string(URL),
+                   "http://localhost:~w/tasks/patch_mt_acl/t1", [Port]),
+            patch_json_(URL,
+                        _{status: completed},
+                        _Reply, Code,
+                        [ authorization(basic(ivy, "ppp")) ]),
+            assertion(Code == 403),
+            % Status must be unchanged
+            assertion(spse4_core:task_property(patch_mt_acl, t1, status, open)),
+            spse4_user_remove(ivy)
+          )),
+        teardown_server_(Port)).
+
+test(patch_status_404_on_missing) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_404),
+          spse4_user_remove(jay),
+          spse4_user_add(jay, "ppp", [write([patch_mt_404])]),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_404/no_such", [Port]),
+          patch_json_(URL,
+                      _{status: completed},
+                      _Reply, Code,
+                      [ authorization(basic(jay, "ppp")) ]),
+          assertion(Code == 404),
+          spse4_user_remove(jay)
+        ),
+        teardown_server_(Port)).
+
+test(patch_status_400_on_invalid_status) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_bad),
+          spse4_user_remove(kate),
+          spse4_user_add(kate, "ppp", [write([patch_mt_bad])]),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_bad/t1", [Port]),
+          patch_json_(URL,
+                      _{status: not_a_real_status},
+                      _Reply, Code,
+                      [ authorization(basic(kate, "ppp")) ]),
+          assertion(Code == 400),
+          % Status must be unchanged
+          assertion(spse4_core:task_property(patch_mt_bad, t1, status, open)),
+          spse4_user_remove(kate)
+        ),
+        teardown_server_(Port)).
+
+test(patch_status_400_on_missing_status_field) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_nofield),
+          spse4_user_remove(liz),
+          spse4_user_add(liz, "ppp", [write([patch_mt_nofield])]),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_nofield/t1", [Port]),
+          patch_json_(URL,
+                      _{wrong_field: completed},
+                      _Reply, Code,
+                      [ authorization(basic(liz, "ppp")) ]),
+          assertion(Code == 400),
+          spse4_user_remove(liz)
+        ),
+        teardown_server_(Port)).
+
+test(patch_status_fires_broadcast) :-
+    setup_call_cleanup(
+        setup_server_(Port),
+        ( seed_graph_(patch_mt_bc),
+          spse4_user_remove(mark),
+          spse4_user_add(mark, "ppp", [write([patch_mt_bc])]),
+          retractall(heard_(_)),
+          listen(patch_token, spse4(E), assertz(heard_(E))),
+          format(string(URL),
+                 "http://localhost:~w/tasks/patch_mt_bc/t1", [Port]),
+          patch_json_(URL,
+                      _{status: in_progress},
+                      _Reply, _Code,
+                      [ authorization(basic(mark, "ppp")) ]),
+          sleep(0.05),
+          findall(E, heard_(E), Heard),
+          assertion(memberchk(task_property_changed(patch_mt_bc, t1, status, in_progress), Heard)),
+          unlisten(patch_token),
+          spse4_user_remove(mark)
         ),
         teardown_server_(Port)).
 

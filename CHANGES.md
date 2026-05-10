@@ -1,5 +1,38 @@
 # SPSE4 — Changelog
 
+## v0.2.1 — 2026-05-10
+
+Status-edit completes the basic CRUD story.  Click the status pill in
+the side panel; pick a new value from the dropdown; the change
+propagates to other open tabs through the existing broadcast → poll
+relay.
+
+### Added
+
+- **`pack-spse4-server`**: `PATCH /tasks/<mt>/<id>` endpoint accepting
+  `{status: "<new_status>"}` JSON body.  Returns 200/400/401/403/404,
+  with the same auth and ACL semantics as POST/DELETE.  Invalid
+  statuses (anything outside `validate_property_/2`'s `oneof` list)
+  return 400.
+
+- **`spse4-web`**: the side-panel status pill is now clickable.
+  Click swaps the pill for an inline `<select>` populated with all 11
+  legal statuses.  Change/Enter commits via `PATCH`; Escape cancels.
+  Optimistic UI: the new status renders immediately, with a rollback
+  on server error.  The 3-second poll is suppressed while a status
+  edit is in progress, so background refreshes don't clobber the
+  open dropdown.
+
+- **Tests**: 7 new PlUnit tests in `pack-spse4-server` covering
+  anon-denied, happy path with auth, ACL-denied wrong mt, 404 on
+  missing task, 400 on invalid status, 400 on missing field, and
+  broadcast-fires verification.
+
+### Changed
+
+- `pack-spse4-server` version bumped to 0.2.1; `/health` now reports
+  `version: "0.2.1"`.
+
 ## v0.2.0 — 2026-05-09
 
 The collaboration layer is functional end-to-end: a task created in one
