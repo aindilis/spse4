@@ -7,12 +7,10 @@
 :- begin_tests(spse4_core).
 
 setup_clean :-
-    retractall(mt_store:mt_registry_(_)),
-    retractall(mt_store:mt_prop_(_,_,_)),
-    retractall(mt_store:mt_fact_(_,_)),
-    retractall(mt_store:mt_spec_(_,_)),
-    retractall(mt_store:mt_acl_(_,_,_)),
-    retractall(mt_store:mt_audit_(_,_,_,_,_)).
+    reset_memory_backend,
+    %  Default to the in-memory backend even if a previous test in
+    %  the same Prolog session swapped the dispatcher.
+    retractall(mt_store:current_backend_(_)).
 
 mk_medical :-
     mt_create(medical, [owner=andrew]).

@@ -162,6 +162,17 @@ acl_mode_(Mode) :-
 %                            localhost prevents other hosts on the LAN
 %                            from reaching the server: HTTP basic auth
 %                            over plaintext HTTP is not safe to expose.
+%     * mt_store_backend(+Spec)
+%                            Storage backend for the microtheory store.
+%                            =|memory|= (default) is the zero-deps
+%                            in-process backend.  =|mysql(MySqlOpts)|=
+%                            persists writes through prolog-mysql-store.
+%                            MySqlOpts is the option list passed to
+%                            =mt_store_mysql_init/1=:
+%                              connection_id(+Atom)  ODBC alias
+%                              user(+Atom), password(+String),
+%                              database(+Atom)
+%                            See pack-mt-store/README.md for setup.
 %
 %   permissive mode is intended only for local development; it
 %   grants any authenticated user full read/write on every mt.
@@ -174,6 +185,13 @@ spse4_server_start(Options) :-
     option(users_file(UsersFile), Options, 'users.pl'),
     option(acl_mode(Mode), Options, strict),
     option(bind(Bind), Options, localhost),
+    %  Storage backend.  Default is the in-process memory backend;
+    %  mysql(MySqlOpts) flips to the MySQL-backed store via
+    %  prolog-mysql-store.  The MySQL backend is only loaded if
+    %  selected, so a fresh clone with no ODBC/MySQL setup can
+    %  still start the server with the default memory backend.
+    option(mt_store_backend(Backend), Options, memory),
+    setup_mt_store_backend_(Backend),
     retractall(acl_override_mode_(_)),
     assertz(acl_override_mode_(Mode)),
     retractall(users_file_(_)),
@@ -203,6 +221,38 @@ spse4_server_start(Options) :-
     format(user_error,
            "spse4_server: listening at http://~w:~w/~n",
            [Bind, Port]).
+
+%!  setup_mt_store_backend_(+Spec) is det.
+%
+%   Switch =mt_store='s active backend per the server option.
+%
+%   * memory             — the default in-process backend.  Always
+%                          available; resets =mt_store='s registered
+%                          backend to the default.
+%
+%   * mysql(MySqlOpts)   — write-through to MySQL via the
+%                          =mt_store_mysql= module.  Loads the module
+%                          on demand (so memory-only deployments
+%                          don't need ODBC), initializes the
+%                          connection, and registers the backend.
+%                          Throws =error(spse4_mysql_unavailable(_),_)=
+%                          if the connection or schema check fails.
+%
+%   Future backends (e.g. a SQL-direct rewrite) plug in here as
+%   additional clauses.  The dispatch interface in =mt_store= is
+%   stable across backends, so adding one is local to this clause.
+
+setup_mt_store_backend_(memory) :- !,
+    %  Reset to the default by retracting any prior registration.
+    %  mt_store:backend_current/1 falls back to mt_store itself
+    %  (the in-module memory backend) when nothing is registered.
+    retractall(mt_store:current_backend_(_)).
+setup_mt_store_backend_(mysql(MySqlOpts)) :- !,
+    use_module(library(mt_store_mysql)),
+    mt_store_mysql:mt_store_mysql_init(MySqlOpts),
+    mt_store:backend_register(mt_store_mysql).
+setup_mt_store_backend_(Other) :-
+    domain_error(mt_store_backend_spec, Other).
 
 %!  spse4_server_stop is det.
 %!  spse4_server_stop(+Port) is det.

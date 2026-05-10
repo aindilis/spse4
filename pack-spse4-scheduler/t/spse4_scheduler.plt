@@ -8,12 +8,8 @@
 :- begin_tests(spse4_scheduler).
 
 setup_clean :-
-    retractall(mt_store:mt_registry_(_)),
-    retractall(mt_store:mt_prop_(_,_,_)),
-    retractall(mt_store:mt_fact_(_,_)),
-    retractall(mt_store:mt_spec_(_,_)),
-    retractall(mt_store:mt_acl_(_,_,_)),
-    retractall(mt_store:mt_audit_(_,_,_,_,_)),
+    reset_memory_backend,
+    retractall(mt_store:current_backend_(_)),
     mt_create(proj, [owner=andrew]).
 
 % ---------------------------------------------------------------------

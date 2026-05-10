@@ -1,5 +1,5 @@
 name(mt_store).
-version('0.1.0').
+version('0.2.0').
 title('Microtheory store with pluggable backend').
 keywords([microtheory, context, knowledge, kr, cyc, guha]).
 author('Andrew Dougherty', 'adougher9@yahoo.com').

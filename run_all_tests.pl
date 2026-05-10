@@ -63,6 +63,7 @@ setup_ :-
     format("~n---- Loading test files ----~n"),
     try_load_testfile_('pack-allen',            'allen.plt'),
     try_load_testfile_('pack-mt-store',         'mt_store.plt'),
+    try_load_testfile_('pack-mt-store',         'mt_store_mysql.plt'),
     try_load_testfile_('pack-spse4-core',       'spse4_core.plt'),
     try_load_testfile_('pack-pddl',             'pddl.plt'),
     try_load_testfile_('pack-spse4-scheduler',  'spse4_scheduler.plt'),

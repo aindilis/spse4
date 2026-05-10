@@ -1,5 +1,115 @@
 # SPSE4 — Changelog
 
+## v0.3.0 — 2026-05-10
+
+Persistent storage backend.  The microtheory store gets a pluggable
+backend interface and a `prolog-mysql-store`-backed implementation
+alongside the original in-memory backend.  Server starts default to
+the in-memory backend (no setup change for existing users); pass
+`mt_store_backend(mysql([connection_id(_)]))` to persist.
+
+### Added
+
+- **`pack-mt-store` v0.2.0**: sixteen-callback BACKEND CALLBACK
+  INTERFACE documented in `prolog/mt_store.pl`.  Backends register
+  via `mt_store:backend_register/1`; `mt_store`'s public API is
+  unchanged, so `pack-spse4-core`, `pack-spse4-server`, and tests
+  need no source changes when the backend is swapped at runtime.
+  The reference (memory) backend stays in-module so
+  `library(mt_store)` still works zero-config.
+
+- **`pack-mt-store/prolog/mt_store_mysql.pl`**: MySQL backend.  User
+  facts (the four shapes asserted by `spse4_core`) ride through
+  `prolog-mysql-store`'s `formulae` table with its argument-indexing
+  and per-functor cache.  Microtheory-level metadata (registry,
+  properties, specialization edges, ACL grants, audit log) lives in
+  five small InnoDB/utf8mb4 addon tables defined by
+  `sql/spse4_addon.sql`.  All sixteen callbacks are wrapped in a
+  module-private `with_mutex(spse4_mt_mysql, _)` because
+  `prolog-mysql-store` gives us a single ODBC handle per
+  ConnectionId; SWI's HTTP server worker threads thus serialize on
+  this lock.  Read-side callbacks use a snapshot-and-yield pattern
+  (collect under the lock, member outside) so backtracking through
+  results never holds the lock across user code.  Init-time priming
+  reads `mt_registry` rows and walks them through
+  `store_ensure_context/2` to seed `prolog-mysql-store`'s context
+  cache for cross-session continuity.
+
+- **`pack-mt-store/sql/spse4_schema.sql`**: a verbatim copy of
+  `prolog-mysql-store`'s `docs/schema.sql`, shipped here so v0.3.0
+  setup is self-contained.
+
+- **`pack-mt-store/sql/spse4_addon.sql`**: five InnoDB tables
+  (`mt_registry`, `mt_property`, `mt_specialization`, `mt_acl`,
+  `mt_audit`) for microtheory-level state.  Foreign keys cascade
+  from registry except on `mt_audit`, which is intentionally
+  detached so dropping a microtheory does not silently erase its
+  audit trail.  `mt_audit.recorded_at_epoch DOUBLE` preserves the
+  sub-second precision of `get_time/1`; a TIMESTAMP column is
+  alongside for human and BI-tool queries.
+
+- **`pack-spse4-server` v0.3.0**: `spse4_server_start/1` accepts a
+  new `mt_store_backend(Spec)` option.  `Spec = memory` (default,
+  zero-config) keeps the prior behavior.  `Spec = mysql(MySqlOpts)`
+  loads `mt_store_mysql` on demand and switches the dispatcher to
+  it.  Future backends plug in as additional clauses of the
+  one-line `setup_mt_store_backend_/1` helper without touching any
+  other code.
+
+- **`pack-mt-store/t/mt_store_mysql.plt`**: thirteen tests covering
+  create/list, assert/ist, retract idempotence, specialization +
+  inheritance, cycle refusal, properties, audit log, ACL grant /
+  revoke / check, public visibility, and persistence-across-cache-
+  drop (the canonical "would survive a server restart" check).
+  Each test is gated on a `mysql_available_/0` condition that
+  probes module loadability, the `SPSE4_MYSQL_DSN` env var, and a
+  live connection.  When any check fails the tests skip cleanly,
+  so `run_all_tests.pl` continues to pass on a fresh clone with
+  no MySQL setup.
+
+- **`pack-mt-store/t/mt_store.plt`**: now uses the new
+  `mt_store:reset_memory_backend/0` helper for setup, instead of
+  reaching into the backend's dynamic predicates.  Same coverage,
+  cleaner abstraction.
+
+### Changed
+
+- **`pack-mt-store/README.md`**: documents the BACKEND CALLBACK
+  INTERFACE, both shipping backends, the MySQL setup recipe (apply
+  both schema files, `~/.odbc.ini` example, env vars for tests),
+  and the test-skip semantics.
+
+### Notes
+
+- This sandbox could not install SWI-Prolog (the dpkg mirror was
+  unreachable), so the v0.3.0 source has been reviewed statically
+  but not run.  Run `swipl -s run_all_tests.pl` locally before
+  trusting the release; the memory backend should pass all 128 of
+  the v0.2.3 tests (they should not have regressed because the
+  public API of `mt_store` is unchanged), and the MySQL tests
+  should skip if no DSN is configured.
+
+- A third backend — a hand-rolled SQL-direct rewrite of
+  `prolog-mysql-store` with a connection pool, prepared statements,
+  proper read-through caching with invalidation, and transparent
+  persistence — is on the v0.4.x roadmap.  The sixteen-callback
+  interface in `mt_store.pl` is the contract that future backend
+  will implement; nothing else need change.
+
+- The MySQL backend's read-side callbacks currently fetch entire
+  result sets and filter in Prolog (e.g. `mt_audit_since/3` reads
+  the whole audit log every call).  Acceptable for v0.3.0's
+  expected workload, gratuitous at scale.  The future SQL-direct
+  backend will push these predicates' selectivity into SQL.
+
+- The MySQL backend cannot store bare-atom facts (e.g. `mt_assert(mt,
+  foo)`) because `prolog-mysql-store`'s term decomposition assumes
+  every fact is compound — it calls `arg/3` on the input. This isn't a
+  real limit for SPSE4, where all asserted facts are at least
+  `task(_)`, `task_property(_,_,_)`, `edge(_,_,_)`, or
+  `edge_property(_,_,_,_,_)`, but it's worth knowing. The planned
+  SQL-direct successor backend will handle bare atoms natively.
+
 ## v0.2.3 — 2026-05-10
 
 Local-development security hardening.  Two changes that make the demo

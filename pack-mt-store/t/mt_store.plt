@@ -1,4 +1,13 @@
-/*  Tests for pack-mt-store  */
+/*  Tests for pack-mt-store (memory backend).
+
+    These tests exercise the in-memory backend, which is the default
+    when no backend is registered.  They use =reset_memory_backend/0=
+    to clear state between tests rather than reaching into the
+    backend's dynamic predicates directly.
+
+    For MySQL backend tests, see =mt_store_mysql.plt= in this same
+    directory; it is skipped automatically when no MySQL is reachable.
+*/
 
 :- use_module(library(plunit)).
 :- use_module('../prolog/mt_store').
@@ -7,12 +16,10 @@
 
 % Clean slate before each test group.
 setup_clean :-
-    retractall(mt_store:mt_registry_(_)),
-    retractall(mt_store:mt_prop_(_,_,_)),
-    retractall(mt_store:mt_fact_(_,_)),
-    retractall(mt_store:mt_spec_(_,_)),
-    retractall(mt_store:mt_acl_(_,_,_)),
-    retractall(mt_store:mt_audit_(_,_,_,_,_)).
+    % Make sure we're using the default (memory) backend, in case a
+    % previous test in the same Prolog session swapped it out.
+    mt_store:retractall(current_backend_(_)),
+    reset_memory_backend.
 
 test(create_and_list, [setup(setup_clean)]) :-
     mt_create(medical),
