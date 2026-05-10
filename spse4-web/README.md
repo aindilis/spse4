@@ -33,7 +33,7 @@ swipl pack-spse4-server/examples/server_demo.pl
 Then open http://localhost:4040/ in a browser. Or with credentials:
 
 ```
-http://localhost:4040/?u=alice&p=hunter2&mt=autopackager
+http://localhost:4040/?u=demo&p=demo&mt=autopackager
 ```
 
 ## Running standalone

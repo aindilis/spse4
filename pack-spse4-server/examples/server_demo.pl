@@ -2,10 +2,29 @@
 
     Launches spse4_server on port 4040 with the autopackager task
     queue from v0.1.12's autopackager_demo.pl seeded into the
-    microtheory `autopackager`.  Adds two demo users:
+    microtheory `autopackager`.
 
-        alice: write access to `autopackager` and `public`
-        bob:   read-only on `public`
+    User accounts are looked up in this order; the first one that
+    exists is used and the rest are skipped:
+
+        1. The file named by the SPSE4_USERS environment variable,
+           if set.
+        2. ~/.config/spse4/users.pl, if it exists.
+        3. Built-in fallback: seeds two demo users in memory:
+              demo:  read+write on `autopackager` and `public`
+              bob:   read-only on `public`
+
+    The lookup files are normal Prolog source consulted with consult/1,
+    so directives like `:- spse4_user_add(name, "plaintext", ACL).`
+    work directly; the password gets hashed at load time.  See
+    pack-spse4-server/README.md for examples and recommended file
+    permissions (0600).
+
+    The server binds to localhost only by default.  Set
+    SPSE4_BIND=0.0.0.0 in the environment to listen on every
+    interface (e.g. so other machines on your LAN or your Tailnet
+    can reach it).  Note that HTTP basic auth over plaintext HTTP
+    is not safe to expose past localhost without TLS in front.
 
     Usage (from the spse4/ root):
 
@@ -14,7 +33,7 @@
     Then open http://localhost:4040/ in a browser, or hit the
     projection endpoint directly:
 
-        curl -u alice:hunter2 \
+        curl -u demo:demo \
              'http://localhost:4040/projection?mt=autopackager&critical_path=1&goal=flp_release'
 
     Stop with Ctrl-C.
@@ -62,8 +81,8 @@ main :-
 main_body_ :-
     format(user_output, "server_demo: starting~n", []),
     flush_output(user_output),
-    setup_demo_users_,
-    format(user_output, "server_demo: users configured~n", []),
+    setup_demo_users_(UserSource),
+    format(user_output, "server_demo: users configured (~w)~n", [UserSource]),
     flush_output(user_output),
     seed_autopackager_queue_,
     format(user_output, "server_demo: queue seeded~n", []),
@@ -71,14 +90,29 @@ main_body_ :-
     locate_web_dir_(WebDir),
     format(user_output, "server_demo: web dir resolved to ~w~n", [WebDir]),
     flush_output(user_output),
+    %  Bind to localhost by default; SPSE4_BIND=0.0.0.0 (or any
+    %  specific IP) overrides for LAN / Tailnet exposure.  Plain
+    %  basic-auth over HTTP is only safe on localhost.
+    (   getenv('SPSE4_BIND', BindStr), BindStr \= ''
+    ->  atom_string(BindAtom, BindStr)
+    ;   BindAtom = localhost
+    ),
     spse4_server_start([ port(4040),
                          acl_mode(permissive),  % local dev only
+                         bind(BindAtom),
                          client_dir(WebDir) ]),
     format("~n=====================================================~n"),
     format("SPSE4 demo running.~n"),
     format("  Web UI:     http://localhost:4040/~n"),
-    format("  With auth:  http://localhost:4040/?u=alice&p=hunter2&mt=autopackager~n"),
+    (   UserSource = builtin_demo
+    ->  format("  With auth:  http://localhost:4040/?u=demo&p=demo&mt=autopackager~n")
+    ;   format("  Auth:       use the credentials from ~w~n", [UserSource])
+    ),
     format("  Projection: http://localhost:4040/projection?mt=autopackager&critical_path=1&goal=flp_release~n"),
+    (   BindAtom == localhost
+    ->  true
+    ;   format("  Bind:       ~w  (reachable beyond localhost)~n", [BindAtom])
+    ),
     format("  Press Ctrl-C to stop.~n"),
     format("=====================================================~n~n"),
     flush_output,
@@ -131,8 +165,52 @@ valid_web_dir_(Path) :-
     atom_concat(Path, '/index.html', Idx),
     exists_file(Idx).
 
-setup_demo_users_ :-
-    spse4_user_add(alice, "hunter2",
+%   setup_demo_users_(-Source) is det.
+%
+%   Configure user accounts for the demo.  Tries three sources in
+%   order; the first that succeeds wins, and Source is bound to a
+%   tag describing which one ran.  None of these branches ever
+%   throw on a missing file: a missing file just means "skip this
+%   source, try the next."  A malformed file is reported on stderr
+%   and the next source is tried.
+%
+%   Source values:
+%     - the absolute path of a loaded file (env var or ~/.config),
+%     - or the atom =|builtin_demo|= if the in-memory fallback ran.
+
+setup_demo_users_(Source) :-
+    (   getenv('SPSE4_USERS', PathStr), PathStr \= '',
+        atom_string(EnvPath, PathStr),
+        try_load_users_file_(EnvPath)
+    ->  Source = EnvPath
+    ;   home_users_path_(HomePath),
+        try_load_users_file_(HomePath)
+    ->  Source = HomePath
+    ;   load_builtin_demo_users_,
+        Source = builtin_demo
+    ).
+
+home_users_path_(Path) :-
+    expand_file_name('~/.config/spse4/users.pl', [Path]).
+
+%   try_load_users_file_(+Path) is semidet.
+%
+%   Succeeds iff the file exists, is readable, and consults without
+%   throwing.  Consult is used (rather than spse4_users_load/1) so
+%   that directives like `:- spse4_user_add(X, "plain", ACL).` work
+%   directly: the user writes plaintext, the predicate hashes.
+
+try_load_users_file_(Path) :-
+    exists_file(Path),
+    catch( consult(Path),
+           Error,
+           ( format(user_error,
+                    "server_demo: ~w failed to load: ~q~n",
+                    [Path, Error]),
+             fail ) ).
+
+load_builtin_demo_users_ :-
+    spse4_user_add(demo, "demo",
                    [ read([autopackager, public]),
                      write([autopackager, public]) ]),
     spse4_user_add(bob, "pass",

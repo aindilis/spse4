@@ -1432,7 +1432,7 @@
       }
     });
 
-    // Auth prompt via URL: ?u=alice&p=hunter2  (dev convenience only)
+    // Auth prompt via URL: ?u=demo&p=demo  (dev convenience only)
     const params = new URLSearchParams(window.location.search);
     const u = params.get('u');
     const p = params.get('p');

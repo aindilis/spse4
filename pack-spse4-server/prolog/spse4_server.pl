@@ -97,7 +97,7 @@ Basic HTTP auth.  User records are kept in a Prolog file (default
 `users.pl`) that contains facts of the form:
 
 ==
-user(alice, "$pbkdf2$...", [read([public,private_a]), write([private_a])]).
+user(demo, "$pbkdf2$...", [read([public,private_a]), write([private_a])]).
 ==
 
 The password column stores a PBKDF2 hash (see crypto_password_hash/2)
@@ -156,7 +156,12 @@ acl_mode_(Mode) :-
 %     * users_file(+File)    Path to users DB (default 'users.pl')
 %     * client_dir(+Dir)     Directory of static web client files
 %     * acl_mode(+Mode)      strict (default) or permissive
-%     * bind(+Iface)         Interface to bind (default localhost)
+%     * bind(+Iface)         Interface to bind: =|localhost|= (default,
+%                            127.0.0.1 only) or e.g. =|'0.0.0.0'|= to
+%                            listen on every interface.  Defaulting to
+%                            localhost prevents other hosts on the LAN
+%                            from reaching the server: HTTP basic auth
+%                            over plaintext HTTP is not safe to expose.
 %
 %   permissive mode is intended only for local development; it
 %   grants any authenticated user full read/write on every mt.
@@ -168,6 +173,7 @@ spse4_server_start(Options) :-
     option(port(Port), Options, 4040),
     option(users_file(UsersFile), Options, 'users.pl'),
     option(acl_mode(Mode), Options, strict),
+    option(bind(Bind), Options, localhost),
     retractall(acl_override_mode_(_)),
     assertz(acl_override_mode_(Mode)),
     retractall(users_file_(_)),
@@ -184,14 +190,19 @@ spse4_server_start(Options) :-
     ),
     register_pengine_app_,
     subscribe_broadcast_,
-    http_server(http_dispatch,
-                [ port(Port),
-                  workers(8)
-                ]),
+    %  http_server's bind semantics: omit the option to bind localhost
+    %  (the SWI default); set to '0.0.0.0' to listen on all interfaces.
+    %  We expose the same semantics through our `bind` option, with
+    %  `localhost` as the explicit default for safety.
+    (   Bind == localhost
+    ->  HttpOpts = [port(Port), workers(8)]
+    ;   HttpOpts = [port(Port), workers(8), bind(Bind)]
+    ),
+    http_server(http_dispatch, HttpOpts),
     assertz(server_port_(Port)),
     format(user_error,
-           "spse4_server: listening at http://localhost:~w/~n",
-           [Port]).
+           "spse4_server: listening at http://~w:~w/~n",
+           [Bind, Port]).
 
 %!  spse4_server_stop is det.
 %!  spse4_server_stop(+Port) is det.
@@ -223,7 +234,7 @@ spse4_server_running(Port) :-
 %   Example:
 %
 %   ==
-%   ?- spse4_user_add(alice, "hunter2",
+%   ?- spse4_user_add(demo, "demo",
 %                     [read([public, private_a]),
 %                      write([private_a])]).
 %   ==
@@ -392,7 +403,7 @@ health_handler(_Request) :-
     findall(P, server_port_(P), Ports),
     aggregate_all(count, user_record_(_, _, _), NUsers),
     reply_json_dict(_{ status: ok,
-                       version: "0.2.2",
+                       version: "0.2.3",
                        ports: Ports,
                        users: NUsers
                      }).

@@ -39,6 +39,12 @@ as a directed graph.*
   `DELETE /edges/<mt>/<from>/<kind>/<to>`,
   `PATCH /edges/<mt>/<from>/<kind>/<to>`). Adds 12 PlUnit tests.
   Closes the basic CRUD story for tasks and edges.
+- **v0.2.3**: local-dev security hardening. `bind/1` default is
+  localhost; `server_demo.pl` reads private credentials from
+  `~/.config/spse4/users.pl` or `$SPSE4_USERS` if either exists,
+  otherwise falls back to throwaway demo accounts. Demo credentials
+  renamed from the original `alice`/`hunter2` placeholders to
+  `demo`/`demo`.
 - **v0.2.x in flight**: WebSocket push (replacing the 3-second poll),
   `spse4-mode.el` Emacs mode using `pengine.el`, multi-instance
   broadcast demo recording.

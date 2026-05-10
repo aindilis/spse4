@@ -1,5 +1,53 @@
 # SPSE4 — Changelog
 
+## v0.2.3 — 2026-05-10
+
+Local-development security hardening.  Two changes that make the demo
+safer to leave running while you debug, with no setup required for
+the out-of-the-box experience.
+
+### Changed
+
+- **`pack-spse4-server`**: `spse4_server_start/1` now honors its
+  `bind/1` option (previously documented but ignored).  Default is
+  `localhost`, matching the existing docstring.  Pass
+  `bind('0.0.0.0')` to listen on every interface.  Plain HTTP basic
+  auth is not safe to expose past localhost without TLS in front,
+  hence the localhost default.
+
+- **`pack-spse4-server/examples/server_demo.pl`**: looks up user
+  accounts in three places, taking the first that exists:
+  1. The file named by `$SPSE4_USERS`, if set.
+  2. `~/.config/spse4/users.pl`, if it exists.
+  3. Built-in throwaway fallback (seeds `demo`/`demo` and
+     `bob`/`pass` in memory).
+
+  Lookup files are consulted with `consult/1`, so directives like
+  `:- spse4_user_add(name, "plaintext", ACL).` work directly — the
+  password is hashed at load time and the plaintext never enters
+  the in-memory user record.  The location is outside the working
+  tree, so `git status` will never offer to stage your private
+  credentials.  A malformed file is reported on stderr and the loader
+  falls through to the next source rather than refusing to start.
+
+- **`server_demo.pl`** also now reads `$SPSE4_BIND`, defaulting to
+  `localhost`.  Set `SPSE4_BIND=0.0.0.0` (or any specific address)
+  to expose the server on the LAN or Tailnet.  The startup banner
+  reports the bind interface when it isn't localhost.
+
+- Demo credentials renamed from `alice`/`hunter2` to `demo`/`demo`
+  in all source, docs, comments, and tests.  More self-documenting
+  as obviously-throwaway demo values.
+
+### Notes
+
+- The `users_file` mechanism in `spse4_server_start/1` is unchanged
+  (still the production path: `user(Name, HashedPassword, ACL).`
+  facts).  The new lookup is purely a `server_demo.pl` convenience.
+- Test count unchanged: the existing `user_add_and_acl` test
+  continues to verify the same predicate behavior under the renamed
+  fixture user.
+
 ## v0.2.2 — 2026-05-10
 
 Edge editing closes the structural-CRUD story.  Tasks gained add/delete

@@ -42,7 +42,7 @@ Or from a local clone:
 
 ```prolog
 ?- use_module(library(spse4_server)).
-?- spse4_user_add(alice, "hunter2",
+?- spse4_user_add(demo, "demo",
                   [read([public, project_a]),
                    write([project_a])]).
 ?- spse4_server_start([port(4040), acl_mode(strict)]).
@@ -68,10 +68,61 @@ swipl server_demo.pl
 Then in another terminal:
 
 ```sh
-curl -u alice:hunter2 \
+curl -u demo:demo \
      'http://localhost:4040/projection?mt=autopackager&critical_path=1&goal=flp_release' \
   | jq .
 ```
+
+### Local development credentials
+
+The demo seeds two throwaway users (`demo`/`demo` and `bob`/`pass`) into
+memory if no credentials file is found. Anyone reading this README knows
+those values, so don't expose the demo past `localhost`.
+
+For real local development you'll want your own credentials. The demo
+looks up credentials in this order, taking the first source that exists:
+
+1. The file named by the `SPSE4_USERS` environment variable, if set.
+2. `~/.config/spse4/users.pl`, if it exists.
+3. The built-in throwaway fallback above.
+
+Either lookup file is regular Prolog source, consulted with `consult/1`,
+so directives work directly. Plaintext goes in; the password gets
+hashed (PBKDF2) at load time and the plaintext never touches the
+in-memory user record:
+
+```prolog
+%  ~/.config/spse4/users.pl   (chmod 600)
+:- spse4_user_add(andrew, "your-password-here",
+                  [ read([autopackager, public, flp_private]),
+                    write([autopackager, flp_private]) ]).
+:- spse4_user_add(meredith, "her-password-here",
+                  [ read([autopackager, public]) ]).
+```
+
+`chmod 600 ~/.config/spse4/users.pl` keeps it readable only by you. The
+file is outside the working tree, so `git status` will never offer to
+commit it, and there's no way to push it by accident.
+
+If the file is malformed, the loader prints the error to stderr and
+falls through to the next source — the demo will not refuse to start
+because of a typo in your credentials file.
+
+### Binding interface
+
+By default the server listens only on `localhost`. To expose it on
+your LAN or Tailnet (e.g. so another machine can hit the demo), pass
+`bind('0.0.0.0')` to `spse4_server_start/1`, or set `SPSE4_BIND` for
+the demo:
+
+```sh
+SPSE4_BIND=0.0.0.0 swipl pack-spse4-server/examples/server_demo.pl
+```
+
+Note that HTTP basic auth over plaintext HTTP is only safe on
+`localhost`. For exposure beyond that, terminate TLS at a reverse
+proxy (nginx, Caddy) and let the proxy talk to the server over
+loopback.
 
 ## ACL model
 

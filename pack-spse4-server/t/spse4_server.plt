@@ -91,7 +91,7 @@ test(health_endpoint) :-
           json_read_dict(Stream, Dict),
           close(Stream),
           assertion(Dict.status == "ok"),
-          assertion(Dict.version == "0.2.2")
+          assertion(Dict.version == "0.2.3")
         ),
         teardown_server_(Port)).
 
@@ -101,16 +101,16 @@ test(health_endpoint) :-
 
 test(user_add_and_acl) :-
     with_strict_mode_(
-        ( spse4_user_remove(alice),
-          spse4_user_add(alice, "hunter2",
+        ( spse4_user_remove(demo),
+          spse4_user_add(demo, "demo",
                          [read([public, priv_a]), write([priv_a])]),
-          spse4_user_acl(alice, ACL),
+          spse4_user_acl(demo, ACL),
           assertion(memberchk(read([public, priv_a]), ACL)),
-          assertion(spse4_acl_allows(alice, read, public)),
-          assertion(spse4_acl_allows(alice, read, priv_a)),
-          assertion(spse4_acl_allows(alice, write, priv_a)),
-          \+ spse4_acl_allows(alice, write, public),
-          \+ spse4_acl_allows(alice, read, secret)
+          assertion(spse4_acl_allows(demo, read, public)),
+          assertion(spse4_acl_allows(demo, read, priv_a)),
+          assertion(spse4_acl_allows(demo, write, priv_a)),
+          \+ spse4_acl_allows(demo, write, public),
+          \+ spse4_acl_allows(demo, read, secret)
         )).
 
 test(user_save_and_reload) :-
